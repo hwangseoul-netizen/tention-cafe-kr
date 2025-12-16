@@ -1,0 +1,35 @@
+.home-wrap {
+  padding: 40px;
+  text-align: center;
+}
+
+.title {
+  font-size: 42px;
+  font-weight: 900;
+  color: #ff4fc3;
+  margin-bottom: 40px;
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.menu-btn {
+  padding: 18px;
+  border-radius: 12px;
+  background: #222;
+  color: #fff;
+  border: 2px solid #ff4fc3;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.menu-btn:hover {
+  background: #ff4fc3;
+  color: #111;
+  cursor: pointer;
+}

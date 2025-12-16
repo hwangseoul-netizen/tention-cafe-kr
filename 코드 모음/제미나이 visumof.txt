@@ -1,0 +1,503 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  SafeAreaView,
+  TextInput,
+  PanResponder,
+  Dimensions,
+  Modal,
+  StatusBar,
+  Switch,
+  Animated,
+  Easing,
+  Platform,
+} from "react-native";
+
+/**
+ * VISUMOF v1.7 — 모바일 최적화 & 피드 집중형 UI
+ * - 상단 헤더 축소 및 타이포그래피 비율 조정
+ * - 카테고리 필터 제거 (인스타형 무한 피드)
+ * - 하단 내비게이션 비율 최적화
+ */
+
+const { width: SCREEN_W } = Dimensions.get("window");
+
+const PALETTE = {
+  bg: "#FAFAFB",
+  card: "#FFFFFF",
+  line: "#F1F5F9", // 더 연한 라인
+  text: "#1F2937", // 약간 부드러운 블랙
+  sub: "#6B7280",
+  chip: "#F3F4F6",
+  brand: "#FF8FA9",      // 블러쉬 핑크
+  brandMint: "#A7F3D0",  // 민트
+  aiAccent: "#A855F7",   // 더 세련된 AI 퍼플
+  danger: "#F87171",
+};
+
+const MAIN_TABS = ["전후 피드", "파트너", "커뮤니티", "업로드"];
+
+const MOCK_FEED = [
+  {
+    id: "ai-001",
+    user: "AI Model",
+    category: "헤어",
+    tags: ["#레이어드컷", "#AI가상", "#스타일링"],
+    before: "https://images.unsplash.com/photo-1557997977-2f6e7c7038e1?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1596489391038-f947ff9f929d?q=80&w=1200",
+    trust: 99,
+    partner: "VISUMOF AI Lab",
+    location: "Virtual",
+    durationDays: 1,
+    price: 0,
+    isAI: true,
+  },
+  {
+    id: "case-001",
+    user: "Jade",
+    category: "시술 클리닉",
+    tags: ["#여드름흔적", "#톤업", "#리얼후기"],
+    before: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1522335781184-c34e5b39c1b7?q=80&w=1200",
+    trust: 92,
+    partner: "Glow Clinic",
+    location: "Gangnam",
+    durationDays: 21,
+    price: 380000,
+    isAI: false,
+  },
+  {
+    id: "ai-002",
+    user: "AI Model",
+    category: "피트니스",
+    tags: ["#복근", "#체형교정", "#AI시뮬레이션"],
+    before: "https://images.unsplash.com/photo-1526506143619-3354687d7f2a?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1541534741688-6078c6bfb5ab?q=80&w=1200",
+    trust: 99,
+    partner: "VISUMOF AI Lab",
+    location: "Virtual",
+    durationDays: 90,
+    price: 1500000,
+    isAI: true,
+  },
+    {
+    id: "case-003",
+    user: "Sol",
+    category: "바디/다이어트",
+    tags: ["#3주변화", "#식단관리"],
+    before: "https://images.unsplash.com/photo-1518611012118-696072aa579a?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1544717305-996b815c338c?q=80&w=1200",
+    trust: 90,
+    partner: "Core PT Lab",
+    location: "Seongsu",
+    durationDays: 60,
+    price: 550000,
+    isAI: false,
+  },
+   {
+    id: "ai-003",
+    user: "AI Model",
+    category: "네일아트",
+    tags: ["#화려한네일", "#연장", "#AI디자인"],
+    before: "https://images.unsplash.com/photo-1632498309187-63c8d7634673?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1604654894610-df63bc536371?q=80&w=1200",
+    trust: 99,
+    partner: "VISUMOF AI Lab",
+    location: "Virtual",
+    durationDays: 0,
+    price: 80000,
+    isAI: true,
+  },
+];
+
+/* 유틸 */
+function formatDuration(days) {
+  if (!days || days <= 0) return "당일";
+  if (days >= 30) return `${Math.round(days / 30)}개월`;
+  return `${days}일`;
+}
+
+/* --- 컴포넌트 --- */
+
+// 1. 컴팩트해진 헤더
+function CompactHeader() {
+  const letters = ["V", "I", "S", "U", "M", "O", "F"];
+  const colors = ["#FF6B6B", "#FF9F43", "#F6C945", "#1DD1A1", "#48DBFB", "#5F27CD", "#FF6B81"];
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        paddingHorizontal: 16,
+        paddingVertical: 12,
+        backgroundColor: "rgba(255,255,255,0.95)",
+        borderBottomWidth: 1,
+        borderColor: PALETTE.line,
+        zIndex: 10,
+      }}
+    >
+      {/* 로고: 사이즈 축소 및 자간 조정 */}
+      <View style={{ flexDirection: "row" }}>
+        {letters.map((ch, idx) => (
+          <Text
+            key={idx}
+            style={{
+              color: colors[idx],
+              fontWeight: "900",
+              fontSize: 20, // 24 -> 20 축소
+              letterSpacing: -0.5, // 자간 축소
+            }}
+          >
+            {ch}
+          </Text>
+        ))}
+      </View>
+
+      {/* 우측 슬로건: 심플하게 */}
+      <View
+        style={{
+          backgroundColor: "#FFF0F5",
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 12,
+        }}
+      >
+        <Text style={{ color: "#BE185D", fontSize: 11, fontWeight: "700" }}>
+          Beauty AI Lab
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// 2. 하단 내비게이션 (플로팅 스타일로 변경하여 개방감 확보)
+function FloatingNavBar({ tab, setTab }) {
+  const icons = {
+    "전후 피드": "🔥",
+    "파트너": "💎",
+    "커뮤니티": "💬",
+    "업로드": "📷",
+  };
+
+  return (
+    <View
+      style={{
+        position: "absolute",
+        bottom: 24, // 조금 더 띄움
+        left: 20,
+        right: 20,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 24,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        shadowColor: "#000",
+        shadowOpacity: 0.1,
+        shadowRadius: 15,
+        shadowOffset: { width: 0, height: 8 },
+        elevation: 10, // 안드로이드 그림자
+      }}
+    >
+      {MAIN_TABS.map((t) => {
+        const active = tab === t;
+        return (
+          <TouchableOpacity
+            key={t}
+            onPress={() => setTab(t)}
+            style={{ alignItems: "center", flex: 1 }}
+          >
+            <Text style={{ fontSize: 18, marginBottom: 2 }}>{icons[t]}</Text>
+            <Text
+              style={{
+                fontSize: 10,
+                fontWeight: active ? "700" : "500",
+                color: active ? "#111827" : "#9CA3AF",
+              }}
+            >
+              {t}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
+// 3. AI 배지 (세련되게)
+function AIBadge() {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#F3E8FF", // 연한 퍼플
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: "#E9D5FF",
+      }}
+    >
+      <Text style={{ color: PALETTE.aiAccent, fontWeight: "700", fontSize: 11 }}>
+        ✨ AI Simulation
+      </Text>
+    </View>
+  );
+}
+
+// 4. 이미지 컴포넌트
+function Img({ uri, height = 220 }) {
+  return (
+    <View
+      style={{
+        width: "100%",
+        height,
+        backgroundColor: "#F3F4F6",
+        borderRadius: 14,
+        overflow: "hidden",
+      }}
+    >
+      <Image
+        source={{ uri }}
+        style={{ width: "100%", height: "100%", resizeMode: "cover" }}
+      />
+    </View>
+  );
+}
+
+// 5. Before/After 슬라이더 (모달용)
+function BeforeAfterSlider({ before, after }) {
+  const [width, setWidth] = useState(0);
+  const [x, setX] = useState(150);
+  
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, g) => {
+        // 간단한 구현: 터치 위치에 따라 이동
+        // 실제로는 LayoutEvent로 width를 받아야 함
+         setX(prev => prev + g.dx); 
+      },
+    })
+  ).current;
+
+  return (
+    <View 
+      onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      style={{ height: 300, borderRadius: 16, overflow: 'hidden', position: 'relative' }}
+    >
+        <Image source={{ uri: after }} style={{ width: '100%', height: '100%' }} />
+        <View style={{ position: 'absolute', left:0, top:0, bottom:0, width: '50%', overflow:'hidden', borderRightWidth: 2, borderColor: '#fff' }}>
+             <Image source={{ uri: before }} style={{ width: width || SCREEN_W, height: 300 }} />
+        </View>
+        <View style={{position:'absolute', top: 10, left: 10, backgroundColor:'rgba(0,0,0,0.5)', padding:4, borderRadius:4}}>
+            <Text style={{color:'#fff', fontSize:10}}>Before</Text>
+        </View>
+        <View style={{position:'absolute', top: 10, right: 10, backgroundColor:'rgba(0,0,0,0.5)', padding:4, borderRadius:4}}>
+            <Text style={{color:'#fff', fontSize:10}}>After</Text>
+        </View>
+    </View>
+  );
+}
+
+
+// 6. 피드 아이템 (비율 최적화)
+function FeedItem({ item, onPartnerAction, onUserAction }) {
+  const isAI = item.isAI;
+
+  return (
+    <View
+      style={{
+        backgroundColor: "#FFFFFF",
+        borderRadius: 20,
+        marginBottom: 20,
+        // 그림자 제거하고 깔끔한 보더로 변경 (성능 및 모던함)
+        borderWidth: 1,
+        borderColor: isAI ? "#E9D5FF" : "#F1F5F9",
+        padding: 12,
+      }}
+    >
+      {/* 헤더: 유저 정보 */}
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 10 }}>
+        <View
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            backgroundColor: isAI ? "#F3E8FF" : "#F3F4F6",
+            justifyContent: "center",
+            alignItems: "center",
+            marginRight: 8,
+          }}
+        >
+          <Text style={{ fontSize: 14 }}>{isAI ? "🤖" : item.user[0]}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 14, fontWeight: "700", color: PALETTE.text }}>
+            {item.user}
+          </Text>
+          <Text style={{ fontSize: 11, color: PALETTE.sub }}>
+            {item.category}
+          </Text>
+        </View>
+        {isAI && <AIBadge />}
+      </View>
+
+      {/* 이미지 (Before/After 썸네일 비교) */}
+      <View style={{ flexDirection: "row", marginBottom: 10 }}>
+        <View style={{ flex: 1, marginRight: 4 }}>
+           <Img uri={item.before} height={180} />
+           <View style={{position:'absolute', bottom:6, left:6, backgroundColor:'rgba(0,0,0,0.4)', paddingHorizontal:6, borderRadius:4}}>
+               <Text style={{color:'#fff', fontSize:10}}>Before</Text>
+           </View>
+        </View>
+        <View style={{ flex: 1, marginLeft: 4 }}>
+           <Img uri={item.after} height={180} />
+           <View style={{position:'absolute', bottom:6, left:6, backgroundColor:'rgba(0,0,0,0.4)', paddingHorizontal:6, borderRadius:4}}>
+               <Text style={{color:'#fff', fontSize:10}}>After</Text>
+           </View>
+        </View>
+      </View>
+
+      {/* 태그 및 설명 */}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 8 }}>
+        {item.tags.map((t) => (
+          <Text key={t} style={{ color: "#4B5563", fontSize: 12, marginRight: 6 }}>
+            {t}
+          </Text>
+        ))}
+      </View>
+
+      {/* 액션 버튼 (비율 조정) */}
+      {isAI ? (
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <TouchableOpacity
+            onPress={() => onPartnerAction(item)}
+            style={{
+              flex: 1,
+              backgroundColor: PALETTE.brandMint,
+              paddingVertical: 10,
+              borderRadius: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: "700", color: "#064E3B" }}>
+              🏷️ 파트너 입점
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => onUserAction(item)}
+            style={{
+              flex: 1,
+              backgroundColor: "#EFF6FF",
+              paddingVertical: 10,
+              borderRadius: 12,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: "700", color: "#1E40AF" }}>
+              💖 상담 요청
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={{
+            backgroundColor: "#F3F4F6",
+            paddingVertical: 10,
+            borderRadius: 12,
+            alignItems: "center",
+          }}
+        >
+          <Text style={{ fontSize: 12, fontWeight: "700", color: "#374151" }}>
+            자세히 보기
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
+/* --- 메인 앱 --- */
+export default function App() {
+  const [tab, setTab] = useState("전후 피드");
+  const [feed] = useState(MOCK_FEED.sort(() => Math.random() - 0.5)); // 랜덤 셔플
+  
+  // 상태 관리 (토스트 등)
+  const [toastMsg, setToastMsg] = useState("");
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
+  const showToast = (msg) => {
+    setToastMsg(msg);
+    Animated.sequence([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(1500),
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start();
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.bg }}>
+      <StatusBar barStyle="dark-content" />
+      
+      {/* 1. 상단 헤더 */}
+      <CompactHeader />
+
+      {/* 2. 메인 컨텐츠 영역 */}
+      <View style={{ flex: 1 }}>
+        {tab === "전후 피드" && (
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
+            {/* 검색바 (심플하게) */}
+            <View style={{marginBottom: 16, backgroundColor:'#fff', borderRadius: 12, paddingHorizontal:12, paddingVertical:10, borderWidth:1, borderColor: PALETTE.line, flexDirection:'row', alignItems:'center'}}>
+                <Text style={{marginRight:8}}>🔍</Text>
+                <TextInput placeholder="어떤 변화를 찾으세요?" style={{flex:1, fontSize:14}} />
+            </View>
+
+            {feed.map((item) => (
+              <FeedItem
+                key={item.id}
+                item={item}
+                onPartnerAction={() => showToast("파트너 문의가 접수되었습니다!")}
+                onUserAction={() => showToast("상담 요청이 전송되었습니다!")}
+              />
+            ))}
+          </ScrollView>
+        )}
+        
+        {/* 다른 탭은 플레이스홀더 */}
+        {tab !== "전후 피드" && (
+          <View style={{flex:1, justifyContent:'center', alignItems:'center'}}>
+              <Text style={{color: PALETTE.sub}}>준비 중인 화면입니다.</Text>
+          </View>
+        )}
+      </View>
+
+      {/* 3. 하단 플로팅 내비게이션 */}
+      <FloatingNavBar tab={tab} setTab={setTab} />
+
+      {/* 토스트 메시지 */}
+      <Animated.View
+        style={{
+          position: "absolute",
+          top: 100,
+          alignSelf: "center",
+          backgroundColor: "rgba(0,0,0,0.8)",
+          paddingHorizontal: 20,
+          paddingVertical: 10,
+          borderRadius: 20,
+          opacity: fadeAnim,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>{toastMsg}</Text>
+      </Animated.View>
+    </SafeAreaView>
+  );
+}

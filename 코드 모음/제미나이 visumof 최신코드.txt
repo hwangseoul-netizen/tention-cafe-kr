@@ -1,0 +1,230 @@
+import React, { useState, useRef } from "react";
+import {
+  View,
+  Text,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  SafeAreaView,
+  TextInput,
+  StatusBar,
+  Dimensions,
+  Animated,
+} from "react-native";
+
+/**
+ * VISUMOF v1.8 — 투명성 등급 (3 Tier System) 도입
+ * - sourceType: 'AI' | 'EDIT' | 'REAL' 로 구분
+ * - 각 타입별 배지 및 컬러 코딩 적용
+ */
+
+const { width: SCREEN_W } = Dimensions.get("window");
+
+const PALETTE = {
+  bg: "#FAFAFB",
+  card: "#FFFFFF",
+  text: "#1F2937",
+  sub: "#6B7280",
+  line: "#F1F5F9",
+  
+  // 3대 소스 컬러
+  ai: "#A855F7",    // AI Muse (퍼플)
+  edit: "#3B82F6",  // Art Edit (블루)
+  real: "#10B981",  // Real Cam (그린)
+  
+  brandMint: "#A7F3D0",
+};
+
+// 샘플 데이터에 sourceType 적용
+const MOCK_FEED = [
+  {
+    id: "ai-001",
+    user: "AI Lab",
+    sourceType: "AI", // 1. AI 생성
+    category: "헤어",
+    tags: ["#2025트렌드", "#애쉬그레이", "#가상디자인"],
+    before: "https://images.unsplash.com/photo-1557997977-2f6e7c7038e1?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1596489391038-f947ff9f929d?q=80&w=1200",
+    desc: "AI가 제안하는 2025년 봄 헤어 컬러 트렌드입니다.",
+  },
+  {
+    id: "case-001",
+    user: "Glow Clinic",
+    sourceType: "EDIT", // 2. 보정/편집
+    category: "시술",
+    tags: ["#잡티제거", "#톤업", "#피부관리"],
+    before: "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1522335781184-c34e5b39c1b7?q=80&w=1200",
+    desc: "시술 후 조명 세팅 촬영본입니다. (피부톤 보정)",
+  },
+  {
+    id: "case-003",
+    user: "Sol",
+    sourceType: "REAL", // 3. 무보정 리얼
+    category: "다이어트",
+    tags: ["#아이폰기본카메라", "#노필터", "#3주변화"],
+    before: "https://images.unsplash.com/photo-1518611012118-696072aa579a?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1544717305-996b815c338c?q=80&w=1200",
+    desc: "보정 1도 없는 찐 후기입니다. 땀구멍까지 다 보임.",
+  },
+    {
+    id: "ai-002",
+    user: "Designer J",
+    sourceType: "AI",
+    category: "인테리어",
+    tags: ["#미래형거실", "#플랜테리어", "#공간디자인"],
+    before: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?q=80&w=1200",
+    after: "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?q=80&w=1200",
+    desc: "6평 원룸을 호텔처럼 바꾸는 AI 시뮬레이션입니다.",
+  },
+];
+
+/* 배지 컴포넌트: 타입에 따라 다르게 표시 */
+function SourceBadge({ type }) {
+  let config = { label: "", color: "", icon: "" };
+
+  switch (type) {
+    case "AI":
+      config = { label: "AI Muse", color: PALETTE.ai, icon: "✨" };
+      break;
+    case "EDIT":
+      config = { label: "Art Edit", color: PALETTE.edit, icon: "🎨" };
+      break;
+    case "REAL":
+      config = { label: "Real Cam", color: PALETTE.real, icon: "🍀" };
+      break;
+    default:
+      config = { label: "Unknown", color: "#999", icon: "?" };
+  }
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: `${config.color}15`, // 투명도 15% 배경
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: `${config.color}40`, // 투명도 40% 테두리
+      }}
+    >
+      <Text style={{ fontSize: 11, marginRight: 3 }}>{config.icon}</Text>
+      <Text style={{ color: config.color, fontWeight: "700", fontSize: 11 }}>
+        {config.label}
+      </Text>
+    </View>
+  );
+}
+
+function Img({ uri, height = 200 }) {
+  return (
+    <View style={{ width: "100%", height, backgroundColor: "#E5E7EB", borderRadius: 12, overflow: "hidden" }}>
+      <Image source={{ uri }} style={{ width: "100%", height: "100%", resizeMode: "cover" }} />
+    </View>
+  );
+}
+
+function FeedItem({ item }) {
+  return (
+    <View
+      style={{
+        backgroundColor: "#FFFFFF",
+        borderRadius: 16,
+        marginBottom: 24,
+        padding: 12,
+        // 소스 타입에 따라 미세한 테두리 색상 차이 (직관성 UP)
+        borderWidth: 1,
+        borderColor: item.sourceType === 'AI' ? '#E9D5FF' : '#F1F5F9',
+      }}
+    >
+      {/* 헤더 */}
+      <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 12 }}>
+        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: "#F3F4F6", marginRight: 10, justifyContent:'center', alignItems:'center' }}>
+          <Text>{item.user[0]}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontWeight: "700", color: PALETTE.text }}>{item.user}</Text>
+          <Text style={{ fontSize: 12, color: PALETTE.sub }}>{item.category}</Text>
+        </View>
+        {/* 핵심: 3단 분류 배지 */}
+        <SourceBadge type={item.sourceType} />
+      </View>
+
+      {/* 이미지 (반반) */}
+      <View style={{ flexDirection: "row", gap: 6, marginBottom: 10 }}>
+        <View style={{ flex: 1 }}>
+            <Img uri={item.before} />
+            <View style={{position:'absolute', bottom:6, left:6, backgroundColor:'rgba(0,0,0,0.5)', padding:4, borderRadius:4}}>
+                <Text style={{color:'#fff', fontSize:10}}>Before</Text>
+            </View>
+        </View>
+        <View style={{ flex: 1 }}>
+            <Img uri={item.after} />
+            <View style={{position:'absolute', bottom:6, left:6, backgroundColor:'rgba(0,0,0,0.5)', padding:4, borderRadius:4}}>
+                <Text style={{color:'#fff', fontSize:10}}>After</Text>
+            </View>
+        </View>
+      </View>
+
+      {/* 설명 및 태그 */}
+      <Text style={{ fontSize: 13, color: PALETTE.text, marginBottom: 6, lineHeight: 18 }}>
+        {item.desc}
+      </Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginBottom: 10 }}>
+        {item.tags.map((t) => (
+          <Text key={t} style={{ fontSize: 12, color: PALETTE.sub, marginRight: 6 }}>{t}</Text>
+        ))}
+      </View>
+
+      {/* 버튼 (AI일 때만 파트너/상담 버튼 활성화 등 로직 가능) */}
+      <TouchableOpacity
+        style={{
+          backgroundColor: item.sourceType === 'AI' ? PALETTE.brandMint : "#F3F4F6",
+          paddingVertical: 12,
+          borderRadius: 10,
+          alignItems: "center",
+        }}
+      >
+        <Text style={{ fontWeight: "700", fontSize: 13, color: item.sourceType === 'AI' ? "#064E3B" : "#374151" }}>
+          {item.sourceType === 'AI' ? "🏷️ 이 디자인으로 파트너 찾기" : "자세히 보기"}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+/* 헤더 및 메인 */
+export default function App() {
+    // 탭: '전체', 'AI Muse', 'Real Cam' 등으로 필터링 가능하게 확장 가능
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: PALETTE.bg }}>
+      <StatusBar barStyle="dark-content" />
+      
+      {/* 심플 헤더 */}
+      <View style={{ padding: 16, borderBottomWidth: 1, borderColor: PALETTE.line, backgroundColor:'#fff', flexDirection:'row', justifyContent:'space-between', alignItems:'center' }}>
+        <Text style={{ fontSize: 20, fontWeight: "900", letterSpacing: -1 }}>
+          <Text style={{color:'#FF6B6B'}}>V</Text>
+          <Text style={{color:'#FF9F43'}}>I</Text>
+          <Text style={{color:'#F6C945'}}>S</Text>
+          <Text style={{color:'#1DD1A1'}}>U</Text>
+          <Text style={{color:'#48DBFB'}}>M</Text>
+          <Text style={{color:'#5F27CD'}}>O</Text>
+          <Text style={{color:'#FF6B81'}}>F</Text>
+        </Text>
+        <View style={{flexDirection:'row', gap:4}}>
+            <View style={{width:8, height:8, borderRadius:4, backgroundColor: PALETTE.real}} />
+            <View style={{width:8, height:8, borderRadius:4, backgroundColor: PALETTE.edit}} />
+            <View style={{width:8, height:8, borderRadius:4, backgroundColor: PALETTE.ai}} />
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={{ padding: 16 }}>
+        {MOCK_FEED.map((item) => (
+          <FeedItem key={item.id} item={item} />
+        ))}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}

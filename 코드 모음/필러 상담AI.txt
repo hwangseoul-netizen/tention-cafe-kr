@@ -1,0 +1,782 @@
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  StyleSheet,
+  TextInput,
+} from "react-native";
+
+/* ==========================================================
+   1) 전체 카테고리
+========================================================== */
+
+const CATEGORIES = [
+  {
+    title: "얼굴",
+    items: [
+      "코필러","콧대필러","코끝필러","보형물교정필러",
+      "이마필러","미간필러",
+      "눈밑필러","다크써클필러","애교필러",
+      "앞광대필러","옆볼필러","광대필러",
+      "팔자주름필러","입가주름필러","입꼬리필러",
+      "턱끝필러","무턱필러","턱라인필러",
+      "관자놀이필러",
+      "입술필러","윗입술필러","아랫입술필러",
+      "얼굴리쉐이핑필러","얼굴축소필러","얼굴비대칭필러",
+      "볼륨복원필러","중안면필러","눈가주름필러",
+    ],
+  },
+  {
+    title: "두상",
+    items: ["두상필러","뒤통수필러","정수리필러","헤어라인필러","귓볼필러","귀전체필러"],
+  },
+  {
+    title: "어깨 / 가슴",
+    items: ["어깨필러","어깨각도교정필러","쇄골필러","가슴필러","가슴볼륨필러","가슴골필러","보형물제거복원필러"],
+  },
+  {
+    title: "골반 / 힙",
+    items: ["골반필러","힙필러","힙전체필러","힙딥필러","힙리프팅필러","허리라인필러"],
+  },
+  {
+    title: "허벅지 / 다리",
+    items: ["허벅지필러","허벅지내측패임필러","무릎주름필러","다리필러","오다리보정필러","흰다리필러"],
+  },
+  {
+    title: "종아리 / 발",
+    items: ["종아리필러","발목필러","발등필러","발꿈치필러"],
+  },
+  {
+    title: "손",
+    items: ["손등필러","손주름필러","손볼륨필러"],
+  },
+];
+
+/* ==========================================================
+   2) 부위별 CC 범위 (예시용)
+========================================================== */
+
+const ccRanges = {
+  코필러: [1, 4],
+  콧대필러: [1, 5],
+  코끝필러: [1, 3],
+  이마필러: [10, 20],
+  눈밑필러: [3, 8],
+  앞광대필러: [4, 12],
+  옆볼필러: [4, 12],
+  광대필러: [3, 10],
+  팔자주름필러: [2, 6],
+  입꼬리필러: [1, 4],
+  턱끝필러: [2, 8],
+  관자놀이필러: [2, 6],
+  입술필러: [1, 3],
+  얼굴리쉐이핑필러: [12, 30],
+  얼굴축소필러: [15, 40],
+  두상필러: [30, 80],
+  뒤통수필러: [50, 150],
+  정수리필러: [20, 40],
+  어깨필러: [20, 200],
+  골반필러: [100, 400],
+  힙딥필러: [150, 600],
+  힙전체필러: [300, 1000],
+  허벅지필러: [80, 300],
+  무릎주름필러: [20, 80],
+  종아리필러: [50, 200],
+};
+
+const defaultRange = [10, 50];
+
+/* ==========================================================
+   3) 볼륨 단계 카드 (라이트 / 스탠다드 / 풀체인지)
+========================================================== */
+
+const VOLUME_LEVELS = [
+  { key: "light", label: "라이트", desc: "티 거의 안 나게, 본인만 아는 변화", desire: 1 },
+  { key: "standard", label: "스탠다드", desc: "사진·영상에서 확실히 보이는 변화", desire: 2 },
+  { key: "full", label: "풀체인지", desc: "이미지가 아예 바뀌는 레벨", desire: 3 },
+];
+
+const calcCC = (part, desire) => {
+  const [min, max] = ccRanges[part] || defaultRange;
+  const center = min + (max - min) * (desire / 3);
+  const from = Math.round(center * 0.8);
+  const to = Math.round(center * 1.2);
+  const difficulty = Math.round((center / max) * 10);
+  return { from, to, difficulty };
+};
+
+const difficultyTier = (d) => {
+  if (!d) return { label: "정보 수집 중", desc: "해당 부위 케이스가 더 쌓이면 안내됩니다." };
+  if (d >= 8) return {
+    label: "하이엔드급 필러 전문 병원",
+    desc: "대용량·멀티부위 시술을 자연스럽게 연결할 수 있는 상위 1%급 술기가 필요합니다.",
+  };
+  if (d >= 5) return {
+    label: "프리미엄급 병원",
+    desc: "해당 부위 경험이 충분하고, 라인·연결을 세밀하게 볼 수 있는 병원에서 시술해야 합니다.",
+  };
+  return {
+    label: "스탠다드급 병원",
+    desc: "소량 보정·입문자용 시술에 적합한 단계입니다.",
+  };
+};
+
+/* ==========================================================
+   4) 심리 타입
+========================================================== */
+
+const getPsychLabel = (psy) => {
+  if (psy === "C") return "자연추구형 (C)";
+  if (psy === "D") return "드라마틱 선호형 (D)";
+  if (psy === "A") return "정교·예민형 (A)";
+  return "아직 선택 안 함";
+};
+
+/* ==========================================================
+   5) 헬퍼
+========================================================== */
+
+const findCategoryOf = (part) => {
+  for (const g of CATEGORIES) {
+    if (g.items.includes(part)) return g.title;
+  }
+  return "기타";
+};
+
+const allParts = CATEGORIES.flatMap((g) => g.items);
+
+/* ==========================================================
+   6) 메인 컴포넌트
+========================================================== */
+
+export default function App() {
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [freeText, setFreeText] = useState(""); // 고민 상세
+  const [selectedGroup, setSelectedGroup] = useState(CATEGORIES[0].title);
+  const [selectedPart, setSelectedPart] = useState(null);
+  const [psy, setPsy] = useState(null);
+  const [selectedVolumeKey, setSelectedVolumeKey] = useState(null);
+
+  const currentGroup = CATEGORIES.find((g) => g.title === selectedGroup);
+  const selectedVolumeLevel =
+    VOLUME_LEVELS.find((v) => v.key === selectedVolumeKey) || null;
+
+  const volumeCards = selectedPart
+    ? VOLUME_LEVELS.map((v) => ({
+        ...v,
+        ...calcCC(selectedPart, v.desire),
+      }))
+    : [];
+
+  const activeDifficulty = selectedPart && selectedVolumeLevel
+    ? calcCC(selectedPart, selectedVolumeLevel.desire).difficulty
+    : null;
+
+  const tier = difficultyTier(activeDifficulty);
+
+  const searchMatches =
+    searchKeyword.trim().length > 0
+      ? allParts.filter((p) => p.includes(searchKeyword.trim()))
+      : [];
+
+  return (
+    <ScrollView style={styles.container}>
+      {/* 히어로 + 설명 */}
+      <View style={styles.heroCard}>
+        <Text style={styles.heroTitle}>
+          필러의 진짜 세계는{"\n"}단 한 번도 공개된 적이 없습니다.
+        </Text>
+        <Text style={styles.heroSubtitle}>
+          이 앱은 “코필러, 가슴필러…”처럼 검색하고 들어온 너를{"\n"}
+          코디 상담 실장처럼 받아서,{" "}
+          <Text style={{ fontWeight: "700" }}>볼륨·난이도·성향</Text>까지 한번에 정리해주는 상담 도구야.
+        </Text>
+      </View>
+
+      {/* 1) 검색/상담 인트로 */}
+      <View style={styles.consultCard}>
+        <Text style={styles.blockTitle}>1단계 · 어떻게 찾고 들어왔어?</Text>
+        <Text style={styles.smallLabel}>검색 키워드</Text>
+        <TextInput
+          style={styles.input}
+          placeholder="예: 코필러, 가슴필러, 힙딥필러…"
+          placeholderTextColor="#BBB"
+          value={searchKeyword}
+          onChangeText={setSearchKeyword}
+        />
+
+        {searchMatches.length > 0 && (
+          <View style={{ marginTop: 8 }}>
+            <Text style={styles.smallLabel}>이 키워드를 찾는 사람들, 보통 이런 부위를 많이 본다</Text>
+            <View style={styles.grid}>
+              {searchMatches.slice(0, 8).map((p) => (
+                <TouchableOpacity
+                  key={p}
+                  style={[
+                    styles.searchChip,
+                    selectedPart === p && styles.searchChipActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedPart(p);
+                    setSelectedGroup(findCategoryOf(p));
+                    setSelectedVolumeKey(null);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.searchChipText,
+                      selectedPart === p && styles.searchChipTextActive,
+                    ]}
+                  >
+                    {p}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        )}
+
+        <Text style={[styles.blockTitle, { marginTop: 14 }]}>
+          2단계 · 구체적으로 뭐가 고민이야?
+        </Text>
+        <Text style={styles.smallLabel}>고민을 자유롭게 적어줘</Text>
+        <TextInput
+          style={[styles.input, styles.textArea]}
+          placeholder="예: 골반이 너무 일자라서 옷발이 안 서요 / 가슴은 큰데 처져 보여요 / 수술은 부담스럽고 필러로 어디까지 가능한지 알고 싶어요"
+          placeholderTextColor="#BBB"
+          value={freeText}
+          onChangeText={setFreeText}
+          multiline
+        />
+      </View>
+
+      {/* 2) 대분류 탭 + 키워드 칩 (정돈된 버전) */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.groupTabRow}
+      >
+        {CATEGORIES.map((g) => (
+          <TouchableOpacity
+            key={g.title}
+            style={[
+              styles.groupTab,
+              g.title === selectedGroup && styles.groupTabActive,
+            ]}
+            onPress={() => {
+              setSelectedGroup(g.title);
+              setSelectedPart(null);
+              setSelectedVolumeKey(null);
+            }}
+          >
+            <Text
+              style={[
+                styles.groupTabText,
+                g.title === selectedGroup && styles.groupTabTextActive,
+              ]}
+            >
+              {g.title}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {currentGroup && (
+        <View style={styles.section}>
+          <View style={styles.grid}>
+            {currentGroup.items.map((item) => (
+              <TouchableOpacity
+                key={item}
+                style={[
+                  styles.partBtn,
+                  selectedPart === item && styles.partBtnActive,
+                ]}
+                onPress={() => {
+                  setSelectedPart(item);
+                  setSelectedVolumeKey(null);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.partBtnText,
+                    selectedPart === item && styles.partBtnTextActive,
+                  ]}
+                >
+                  {item}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
+      {/* 3) 상세 패널: 볼륨 단계 + 심리 + 티어 */}
+      {!selectedPart && (
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>부위를 하나 골라줘</Text>
+          <Text style={styles.infoDesc}>
+            검색 키워드와 실제 고민을 적었다면,{" "}
+            <Text style={{ fontWeight: "700" }}>위 카테고리에서 딱 맞는 부위</Text>를 선택해.{"\n"}
+            그 다음부터는 ▸ 볼륨 단계 ▸ 난이도 ▸ 성향 ▸ 병원 티어까지 한 번에 정리해줄게.
+          </Text>
+        </View>
+      )}
+
+      {selectedPart && (
+        <View style={styles.infoCard}>
+          {/* 헤더 */}
+          <View style={styles.infoHeaderRow}>
+            <View>
+              <Text style={styles.infoTitle}>{selectedPart}</Text>
+              <Text style={styles.infoCategory}>
+                카테고리 · {findCategoryOf(selectedPart)}
+              </Text>
+            </View>
+            <View style={styles.tagChip}>
+              <Text style={styles.tagChipText}>볼륨 · 리프팅</Text>
+            </View>
+          </View>
+
+          {/* 볼륨 단계 카드 */}
+          <Text style={styles.blockTitle}>3단계 · 볼륨 단계별 전후 감각 잡기</Text>
+          <Text style={styles.blockHint}>
+            아래는 이 부위를{" "}
+            <Text style={{ fontWeight: "700" }}>라이트 / 스탠다드 / 풀체인지</Text>로 갔을 때{" "}
+            예시 용량대야. 나중에는 여기 각각에 실제 전후사진이 붙을 거고,
+            지금은 볼륨 감각부터 익히면 돼.
+          </Text>
+
+          {volumeCards.map((v) => (
+            <TouchableOpacity
+              key={v.key}
+              style={[
+                styles.volumeCard,
+                selectedVolumeKey === v.key && styles.volumeCardActive,
+              ]}
+              onPress={() => setSelectedVolumeKey(v.key)}
+            >
+              <View style={{ flex: 1 }}>
+                <Text style={styles.volumeLabel}>{v.label}</Text>
+                <Text style={styles.volumeDesc}>{v.desc}</Text>
+                <Text style={styles.volumeCc}>
+                  예시 용량: {v.from}~{v.to} cc
+                </Text>
+              </View>
+              <View style={styles.volumeBadge}>
+                <Text style={styles.volumeBadgeText}>
+                  난이도 {v.difficulty}/10
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+
+          {/* 심리 타입 */}
+          <Text style={styles.blockTitle}>4단계 · 본인 성향 체크</Text>
+          <View style={styles.psychRow}>
+            <TouchableOpacity
+              style={[styles.psychBtn, psy === "C" && styles.psychBtnActive]}
+              onPress={() => setPsy("C")}
+            >
+              <Text style={styles.psychBtnText}>자연스럽게</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.psychBtn, psy === "D" && styles.psychBtnActive]}
+              onPress={() => setPsy("D")}
+            >
+              <Text style={styles.psychBtnText}>확실하게</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.psychBtn, psy === "A" && styles.psychBtnActive]}
+              onPress={() => setPsy("A")}
+            >
+              <Text style={styles.psychBtnText}>정교·예민</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.psychLabel}>
+            선택한 타입: {getPsychLabel(psy)}
+          </Text>
+
+          {/* 병원 티어 (교육용) */}
+          {selectedVolumeKey && (
+            <>
+              <Text style={styles.blockTitle}>5단계 · 이 정도는 어느 급 병원이 해야 할까?</Text>
+              <View style={styles.tierCard}>
+                <Text style={styles.tierLabel}>{tier.label}</Text>
+                <Text style={styles.tierDesc}>{tier.desc}</Text>
+                <Text style={styles.tierFootnote}>
+                  * 실제 병원 매칭 기능은 필러 특화 병원 입점 후 오픈 예정입니다.{"\n"}
+                  지금은 “내가 원하는 변화가 어느 급 술기가 필요한지” 감각을 잡는 단계야.
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* 4) 상담 요약 카드 */}
+      {(searchKeyword || freeText || selectedPart) && (
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryTitle}>지금까지 상담 내용 정리</Text>
+          {searchKeyword ? (
+            <Text style={styles.summaryItem}>• 검색 키워드: {searchKeyword}</Text>
+          ) : null}
+          {selectedPart ? (
+            <Text style={styles.summaryItem}>• 관심 부위: {selectedPart}</Text>
+          ) : null}
+          {selectedVolumeKey ? (
+            <Text style={styles.summaryItem}>
+              • 희망 볼륨 단계: {VOLUME_LEVELS.find((v) => v.key === selectedVolumeKey)?.label}
+            </Text>
+          ) : null}
+          {psy ? (
+            <Text style={styles.summaryItem}>• 성향 타입: {getPsychLabel(psy)}</Text>
+          ) : null}
+          {freeText ? (
+            <Text style={styles.summaryItem}>• 고민 메모: {freeText}</Text>
+          ) : null}
+          {!freeText && !selectedPart && !searchKeyword && (
+            <Text style={styles.summaryItem}>아직 정보가 부족해. 위에서 조금만 더 눌러보고 적어줘.</Text>
+          )}
+        </View>
+      )}
+
+      {/* 하단 CTA – 나중에 카톡/내부챗/텔레그램 등 연결 */}
+      <TouchableOpacity
+        style={styles.consultBtn}
+        onPress={() => {
+          // 나중에 실제 상담 채널(카톡/내부챗/텔레그램) 연동 예정
+          console.log("상담 이어가기 눌림");
+        }}
+      >
+        <Text style={styles.consultText}>이 내용으로 상담 이어가기 (추후 채널 연동)</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+/* ==========================================================
+   스타일
+========================================================== */
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#F7F7FA",
+    paddingHorizontal: 18,
+    paddingTop: 20,
+  },
+
+  heroCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  heroTitle: {
+    fontSize: 22,
+    fontWeight: "800",
+    color: "#222",
+    marginBottom: 8,
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    color: "#555",
+    lineHeight: 18,
+  },
+
+  consultCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  smallLabel: {
+    fontSize: 12,
+    color: "#777",
+    marginBottom: 4,
+  },
+  input: {
+    backgroundColor: "#F3F3F7",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    color: "#222",
+  },
+  textArea: {
+    height: 90,
+    textAlignVertical: "top",
+    marginTop: 4,
+  },
+
+  groupTabRow: {
+    marginTop: 8,
+    marginBottom: 6,
+  },
+  groupTab: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: "#EDEDF2",
+    marginRight: 8,
+  },
+  groupTabActive: {
+    backgroundColor: "#4EA8DE",
+  },
+  groupTabText: {
+    fontSize: 13,
+    color: "#555",
+    fontWeight: "500",
+  },
+  groupTabTextActive: {
+    color: "#FFF",
+    fontWeight: "700",
+  },
+
+  section: {
+    marginBottom: 6,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+
+  partBtn: {
+    backgroundColor: "#FFFFFF",
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    marginRight: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: "#E2E2E8",
+  },
+  partBtnActive: {
+    borderColor: "#4EA8DE",
+    backgroundColor: "#E7F3FF",
+  },
+  partBtnText: {
+    color: "#555",
+    fontSize: 13,
+  },
+  partBtnTextActive: {
+    color: "#1B6EA8",
+    fontWeight: "700",
+  },
+
+  searchChip: {
+    backgroundColor: "#F3F3F7",
+    borderRadius: 999,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  searchChipActive: {
+    backgroundColor: "#FFE4F2",
+  },
+  searchChipText: {
+    fontSize: 12,
+    color: "#555",
+  },
+  searchChipTextActive: {
+    color: "#C92576",
+    fontWeight: "700",
+  },
+
+  infoCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 18,
+    marginTop: 10,
+    marginBottom: 10,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  infoHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 8,
+  },
+  infoTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#222",
+  },
+  infoCategory: {
+    fontSize: 12,
+    color: "#777",
+    marginTop: 2,
+  },
+  infoDesc: {
+    fontSize: 13,
+    color: "#555",
+    lineHeight: 18,
+  },
+
+  tagChip: {
+    backgroundColor: "#FFE4F2",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  tagChipText: {
+    fontSize: 11,
+    color: "#C92576",
+    fontWeight: "700",
+  },
+
+  blockTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#333",
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  blockHint: {
+    fontSize: 12,
+    color: "#777",
+    marginBottom: 8,
+    lineHeight: 17,
+  },
+
+  volumeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5FA",
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+  },
+  volumeCardActive: {
+    backgroundColor: "#FFE4F2",
+    borderColor: "#FF4FA3",
+    borderWidth: 1,
+  },
+  volumeLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#222",
+    marginBottom: 2,
+  },
+  volumeDesc: {
+    fontSize: 12,
+    color: "#666",
+    marginBottom: 2,
+  },
+  volumeCc: {
+    fontSize: 12,
+    color: "#4EA8DE",
+    fontWeight: "700",
+  },
+  volumeBadge: {
+    backgroundColor: "#4EA8DE",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    marginLeft: 8,
+  },
+  volumeBadgeText: {
+    color: "#FFF",
+    fontSize: 11,
+    fontWeight: "700",
+  },
+
+  psychRow: {
+    flexDirection: "row",
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  psychBtn: {
+    flex: 1,
+    backgroundColor: "#F3F3F7",
+    borderRadius: 999,
+    paddingVertical: 8,
+    alignItems: "center",
+    marginRight: 6,
+  },
+  psychBtnActive: {
+    backgroundColor: "#FF4FA3",
+  },
+  psychBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#333",
+  },
+  psychLabel: {
+    fontSize: 12,
+    color: "#666",
+  },
+
+  tierCard: {
+    backgroundColor: "#FAFAFF",
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 4,
+  },
+  tierLabel: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#222",
+    marginBottom: 4,
+  },
+  tierDesc: {
+    fontSize: 12,
+    color: "#555",
+    lineHeight: 17,
+  },
+  tierFootnote: {
+    fontSize: 11,
+    color: "#999",
+    marginTop: 6,
+  },
+
+  summaryCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  summaryTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#222",
+    marginBottom: 6,
+  },
+  summaryItem: {
+    fontSize: 12,
+    color: "#555",
+    marginBottom: 2,
+  },
+
+  consultBtn: {
+    backgroundColor: "#FF4FA3",
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginBottom: 40,
+  },
+  consultText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+});

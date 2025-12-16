@@ -1,0 +1,1920 @@
+ App.js — TENtion v2.4 (patched, Snack-ready, pure JS)
+ - Fix starstimeFilter red screens (no unsafe field access)
+ - StartEnd numeric inputs with number-pad + auto HHMM
+ - 24h vs AMPM mode toggle + separate AMPM for Start and End (fixed logic)
+ - Editing End updates Duration (10~100, snap 10)
+ - Duration 5x2 grid perfectly aligned
+ - Capacity min 2, no max
+ - ArriveExtend demo logic kept
+ - Brand-friendly Try category kept
+ No external deps.
+
+import React, {useEffect, useMemo, useRef, useState} from react;
+import {
+  SafeAreaView, View, Text, TouchableOpacity, TextInput, ScrollView,
+  StyleSheet, Alert, Share, KeyboardAvoidingView, Platform, Image, Dimensions
+} from react-native;
+
+ ---- default export near top (Snack rule) ---- 
+export default function App(){ return Root }
+
+ =========================
+   Constants
+========================= 
+const ME = You;
+
+const CATS = [
+  {keyVibes,   labelVibes,   icon✨, color#FF5CAB},
+  {keyFriends, labelFriends, icon🤝, color#2EE778},
+  {keyWorkout, labelMove,    icon💪, color#FFA23B},  label만 Move
+  {keyTry,     labelTry,     icon🧪, color#6AAEFF},
+];
+
+const TIME_SLOTS = [Any,Morning,Afternoon,Evening,Night];
+const SORTS = [Ending Soon,Newest,Nearest,Rating];
+const DURATIONS = [10,20,30,40,50,60,70,80,90,100];
+
+const CITY_LIST = [
+  {codeALL, nameAll Cities, state,  lat0,        lng0,         regionAll},
+  {codeLA,  nameLos Angeles,   stateCA, lat34.0522, lng-118.2437, regionWest},
+  {codeSF,  nameSan Francisco, stateCA, lat37.7749, lng-122.4194, regionWest},
+  {codeNYC, nameNew York City, stateNY, lat40.7128, lng-74.0060,  regionEast},
+  {codeMIA, nameMiami,         stateFL, lat25.7617, lng-80.1918,  regionSouth},
+   extras in More▾
+  {codeSEA, nameSeattle,       stateWA, lat47.6062, lng-122.3321, regionWest},
+  {codeCHI, nameChicago,       stateIL, lat41.8781, lng-87.6298,  regionMidwest},
+  {codeATX, nameAustin,        stateTX, lat30.2672, lng-97.7431,  regionSouth},
+  {codeBOS, nameBoston,        stateMA, lat42.3601, lng-71.0589,  regionEast},
+  {codeATL, nameAtlanta,       stateGA, lat33.7490, lng-84.3880,  regionSouth},
+];
+
+const CITY = CITY_LIST.reduce((m,c)={ m[c.code]=c; return m; },{});
+const cityName  = (code)= CITY[code].name  code;
+const cityState = (code)= CITY[code].state  ;
+
+ =========================
+   Helpers
+========================= 
+const clamp=(n,a,b)=Math.max(a,Math.min(b,n));
+function miles(a,b){
+  const dx=(a.lat-b.lat)69, dy=(a.lng-b.lng)54;
+  return Math.sqrt(dxdx+dydy);
+}
+
+const two  =(n)=String(n).padStart(2,0);
+const t3    =(s)={
+  const sec = Math.max(0, s  0);
+  return `${two(Math.floor(sec3600))}${two(Math.floor((sec%3600)60))}${two(sec%60)}`;
+};
+const ratingStr =(n)= !n  ⭐ —  ⭐.repeat(Math.max(1,Math.min(5,Math.round(n))));
+
+function parseHM24(text){
+   expects HHMM 00~23
+  const m = ^(d{1,2})(d{0,2})$.exec(text);
+  if(!m) return null;
+  let H = parseInt(m[1]0,10);
+  let M = parseInt((m[2]0).padEnd(2,0),10);
+  if(isNaN(H)isNaN(M)) return null;
+  H = clamp(H,0,23);
+  M = clamp(M,0,59);
+  return H60 + M;
+}
+function parseHM12(text, mer){  text hhmm (1~12), mer AMPM
+  const m = ^(d{1,2})(d{0,2})$.exec(text);
+  if(!m) return null;
+  let h = parseInt(m[1]0,10);
+  let mm = parseInt((m[2]0).padEnd(2,0),10);
+  if(isNaN(h)isNaN(mm)) return null;
+  h = clamp(h,1,12);
+  mm = clamp(mm,0,59);
+  let H = h%12;
+  if(mer===PM) H += 12;
+  return H60 + mm;
+}
+const minTo24 = (mins)= `${two(Math.floor(mins60)%24)}${two(mins%60)}`;
+function minTo12(mins){
+  const H24 = Math.floor(mins60)%24, M = mins%60;
+  const mer = H24=12PMAM;
+  const h = ((H24+11)%12)+1;
+  return {text`${two(h)}${two(M)}`, mer};
+}
+function guessTimeBucketFromMin(mins){
+  const h = Math.floor(mins60)%24;
+  if(h12 && h=5) return Morning;
+  if(h=12 && h17) return Afternoon;
+  if(h=17 && h21) return Evening;
+  return Night;
+}
+function defaultPlace(city){
+  if(city===LA)  return {placeSanta Monica Pier, gps[34.0094,-118.4973]};
+  if(city===SF)  return {placeCrissy Field East Beach, gps[37.8043,-122.4649]};
+  if(city===NYC) return {placeCentral Park (Bethesda Terrace), gps[40.7740,-73.9700]};
+  if(city===MIA) return {placeSouth Pointe Park Pier, gps[25.7650,-80.1363]};
+  return {place`${cityName(city)} Downtown`, gps[CITY[city].lat0,CITY[city].lng0]};
+}
+
+ number-pad용 숫자만 받아 자동 HHMM 포맷
+function formatHMInput(raw){
+  const d = (raw).replace(Dg,).slice(0,4);
+  if(d.length=2) return d;
+  return d.slice(0,2)++d.slice(2);
+}
+
+ =========================
+   Seeds 80 slots + 1 demo brand
+========================= 
+function titles20(type){
+  if(type===Vibes) return [
+    Sunrise Coffee Walk,Silent First Look,Bookstore First Page,Street Art Stroll,
+    Farmer’s Market Loop,Pier Sunset,Two-Song Share,Viewpoint Chill,
+    Dog-Walk Meet,Gallery Micro Tour,City Steps Pulse,Park Bench Hello,
+    Morning Matcha,Rooftop Quick Chat,Riverfront Mini Stroll,Museum One-Piece,
+    Beach Breeze Talk,Fountain Meet,Skyline Snapshot,Garden Micro Walk
+  ];
+  if(type===Friends) return [
+    Co-founder Spark,Language Swap Mini,New in Town Loop,Photo Crit Mini,
+    Mentor Ping,No-Phone Bench Talk,Side-Project Show,Parent Reset,
+    Vision Board in 10,Career Fork,Gratitude Walk,Two-Prompt Journal,
+    City Secrets Swap,Hobby Trade,Podcast Rec Swap,Board Games Hello,
+    Sketch & Share,Film Buff Mini,Foodies First Bite,Coffee Recipe Swap
+  ];
+  if(type===Workout) return [
+    Jog & Talk,Park Stretch,Mobility Reset,Stairs Sprint,
+    Pickleball Rally,Mini Tennis,Bike Loop,Court Walk,
+    Breath Reset,Stability Flow,Lake Path Walk,Hill Repeats Light,
+    Track Laps Easy,Beach Planks,Core & Posture,Yoga Sun Salute,
+    Balance & Hips,Resistance Band Mini,Walk & Decompress,Tempo Stroll
+  ];
+   Try
+  return [
+    Listen Only,Hard Things,Anxiety Walk,Burnout SOS,
+    Founder Therapy,Immigrant Stories,Stoic Reset,Career Pivot,
+    Study Buddy,No Pitch Hour,Compliment Swap,Grief Minute,
+    Big Decision Draft,Habit Engineering,Deep Work Setup,MBA PhD,
+    Job Search Sprint,Boundaries IRL,Minimalism IRL,Morning Refocus
+  ];
+}
+function descFor(type){
+  if(type===Vibes)   return Light, simple, decide fast.;
+  if(type===Friends) return Two people, one theme. Kind feedback only.;
+  if(type===Workout) return Easy pace; headphones off.;  Move
+  if(type===Try)     return Short real-world tryout. No pressure, just taste & see.;
+  return Honest conversation. Presence over performance.;
+}
+function whoFor(type){
+  if(type===Vibes)   return Casual first meet. Public place only.;
+  if(type===Friends) return Friendly builders & curious minds.;
+  if(type===Workout) return Light movers. No pressure.;
+  if(type===Try)     return Curious people who like tasting, testing, trying new things.;
+  return Candid talkers. Empathy over advice.;
+}
+function whatDo(type){
+  if(type===Vibes)   return [Say hi & set a single goal,Walk 2–3 blocks,Wrap on time];
+  if(type===Friends) return [Pick one topic only,Swap one tip each,Wrap on time];
+  if(type===Workout) return [Warm up together,Choose 2–3 light drills,Cool down & water];
+  if(type===Try)     return [
+    Meet at the exact spot or store,
+    Try the thing together (food, product, space),
+    Share one honest thought each and wrap on time,
+  ];
+  return [Pick one topic only,One speaks, one listens,Switch and wrap on time];
+}
+function core80(){
+  const cities = [LA,SF,NYC,MIA];
+  const out=[];
+  let id=1;
+  for (const cat of [Vibes,Friends,Workout,Try]) {
+    const titles = titles20(cat);
+    for (let i=0;i20;i++){
+      const city = cities[i%cities.length];
+      const tod  = [Morning,Afternoon,Evening,Night][(i+id)%4];
+      const baseH = tod===Morning8 tod===Afternoon14 tod===Evening18 20;
+      const mm = (i7)%60;
+      const dur = [10,20,30][i%3];
+      const start = `${two((baseH + Math.floor(i3))%24)}${two(mm)}`;
+      const totalSecs = dur60;
+      const secsLeft  = Math.max(30, Math.floor(totalSecs0.8) - (i%25));
+      const {place,gps} = defaultPlace(city);
+      out.push({
+        id id++,
+        origincore,
+        type cat, city, timeFiltertod,
+        title titles[i%titles.length],
+        start, end , totalMinsdur, totalSecs, secsLeft,
+        attendees[], max2,
+        desc descFor(cat),
+        place, gps, who whoFor(cat), todo whatDo(cat),
+        reviews[], proofScore3+(i%3), hostTypeme, deposit0,
+        present [], extendedBy 0, isBrandfalse, brandName, brandTagline, reward
+      });
+    }
+  }
+   Demo 브랜드 슬롯 하나 (Try)
+  const demoCity = SF;
+  const {place,gps} = defaultPlace(demoCity);
+  out.push({
+    idid++,
+    originbrand,
+    typeTry,
+    citydemoCity,
+    timeFilterAfternoon,
+    titleTry New cold brew flight,
+    start1500,
+    end,
+    totalMins30,
+    totalSecs3060,
+    secsLeft2560,
+    attendees[],
+    max4,
+    descShort tasting of 3 cold brews. Just taste, talk, and go.,
+    place,gps,
+    who whoFor(Try),
+    todo whatDo(Try),
+    reviews[],
+    proofScore4.5,
+    hostTypeplatform,
+    deposit0,
+    present[], extendedBy0, isBrandtrue,
+    brandName(Demo brand), brandTaglineTry a real-world product together, rewardFree tasting in this slot,
+  });
+  return out;
+}
+
+ =========================
+   Root
+========================= 
+function Root(){
+  const [slots,setSlots]=useState(()= core80().sort((a,b)=b.id-a.id));
+  const [screen,setScreen]=useState(home);  home  detail  create  my
+  const [selId,setSelId]=useState(null);
+
+   Filters
+  const [activeCat,setActiveCat]=useState();   = all
+  const [radius,setRadius]=useState(5);         mi
+  const [durFilter,setDurFilter]=useState(10);  min, 10~100
+  const [sortBy,setSortBy]=useState(Ending Soon);
+  const [timeOfDay,setTimeOfDay]=useState(Any);
+  const [city,setCity]=useState(SF);
+  const [showCitySheet,setShowCitySheet]=useState(false);
+  const [showTimeSheet,setShowTimeSheet]=useState(false);
+  const [showSortSheet,setShowSortSheet]=useState(false);
+  const [search,setSearch]=useState();
+
+  const [createOpen,setCreateOpen]=useState(false);
+  const scrollRef=useRef(null);
+
+   Profile & My
+  const [profile,setProfile]=useState({name,bio,avatar});
+
+   1s ticker for countdown
+  useEffect(()={
+    const t=setInterval(()={
+      setSlots(prev=prev.map(s={
+        const left = Math.max(0,(s.secsLeft0)-1);
+        return {...s, secsLeftleft};
+      }));
+    },1000);
+    return ()=clearInterval(t);
+  },[]);
+
+  const resetHome=()={
+    setActiveCat(); setRadius(5); setDurFilter(10); setSortBy(Ending Soon);
+    setTimeOfDay(Any); setCity(SF); setSearch();
+    setScreen(home); setSelId(null);
+    scrollRef.current.scrollTo({y0,animatedtrue});
+  };
+
+  const list = useMemo(()={
+    let arr = slots.slice();
+
+    if(activeCat) arr = arr.filter(s=s.type===activeCat);
+    if(timeOfDay!==Any) arr = arr.filter(s=s.timeFilter===timeOfDay);
+
+    if(city!==ALL){
+      const me = CITY[city];
+      arr = arr.filter(s = miles(me, CITY[s.city]) = radius + 1e-6);
+    }
+    arr = arr.filter(s = s.totalMins=durFilter);
+
+    if(search.trim()){
+      const q=search.trim().toLowerCase();
+      arr = arr.filter(s={
+        const txt = `${s.title} ${s.type} ${cityName(s.city)}`.toLowerCase();
+        return txt.includes(q);
+      });
+    }
+
+    if(sortBy===Ending Soon) arr.sort((a,b)=(a.secsLeft1e9)-(b.secsLeft1e9));
+    if(sortBy===Newest)      arr.sort((a,b)=b.id-a.id);
+    if(sortBy===Rating)      arr.sort((a,b)=(b.proofScore0)-(a.proofScore0));
+    if(sortBy===Nearest){
+      const ref = city===ALL  CITY[SF]  CITY[city];
+      arr.sort((a,b)= miles(ref,CITY[a.city]) - miles(ref,CITY[b.city]));
+    }
+
+    return arr;
+  },[slots,activeCat,radius,durFilter,sortBy,timeOfDay,city,search]);
+
+  const sel = useMemo(()= slots.find(s=s.id===selId)  null, [selId,slots]);
+
+   Actions 
+  const join=(slot)={
+    if(slot.attendees.includes(ME)) return;
+    if(slot.attendees.length=slot.max){
+      Alert.alert(Full,This slot is already full.);
+      return;
+    }
+    const next={...slot, attendees[...slot.attendees,ME]};
+    setSlots(prev=prev.map(s=s.id===slot.idnexts));
+    Alert.alert(Checked In,You’re in!);
+  };
+  const leave=(slot)={
+    if(!slot.attendees.includes(ME)) return;
+    const next = {
+      ...slot,
+      attendees slot.attendees.filter(x=x!==ME),
+      present(slot.present[]).filter(x=x!==ME)
+    };
+    setSlots(prev=prev.map(s=s.id===slot.idnexts));
+  };
+  const shareSlot=async(slot)={
+    try{
+      await Share.share({
+        message`TENtion • ${slot.title}n${slot.type} @ ${cityName(slot.city)} • ${slot.timeFilter}n⏳ ${t3(slot.secsLeft0)} left`
+      });
+    }catch(e){}
+  };
+
+   arrive  extend demo
+  const arrive = (slot)={
+    if(slot.present.includes(ME)) return;
+    const next = {...slot, present[...(slot.present[]), ME]};
+    setSlots(prev=prev.map(s=s.id===slot.idnexts));
+    Alert.alert(Arrived,Let them know you’re at the spot.);
+  };
+  const extend10 = (slot)={
+    const maxExtra = 20;
+    const already = slot.extendedBy  0;
+    if(already = maxExtra){
+      Alert.alert(Limit,This slot is already fully extended.);
+      return;
+    }
+    if((slot.secsLeft0)  560){
+      Alert.alert(Too early,Extend only near the end.);
+      return;
+    }
+    const extra = 10;
+    const next = {
+      ...slot,
+      extendedBy already + extra,
+      totalMins slot.totalMins + extra,
+      totalSecs slot.totalSecs + extra60,
+      secsLeft (slot.secsLeft0) + extra60,
+    };
+    setSlots(prev=prev.map(s=s.id===slot.idnexts));
+    Alert.alert(Extended,+10 min — only if everyone agrees.);
+  };
+
+   Create form state
+  const [form,setForm]=useState({
+    catVibes,
+    hostI host,  I host  TENtion hosts
+    cap2,
+    citySF,
+    timeFilterAny,
+    timeMode24h,  24h  12h
+    startText1800,
+    endText1810,
+    startMerPM,
+    endMerPM,
+    dur10,
+    title,
+    desc
+  });
+
+  const openCreate=()={
+    setForm(f={
+      const startMin = parseHM24(1800);
+      const dur = 10;
+      const endMin = startMin + dur;
+      const s12 = minTo12(startMin);
+      const e12 = minTo12(endMin);
+      return {
+        ...f,
+        catVibes, hostI host, cap2, citycity, timeFiltertimeOfDay,
+        timeMode24h,
+        startTextminTo24(startMin),
+        endTextminTo24(endMin),
+        startMers12.mer, endMere12.mer,
+        dur,
+        title, desc
+      };
+    });
+    setCreateOpen(true);
+    setScreen(create);
+  };
+
+   Create slot
+  const createSlot=()={
+    const startMinVal = form.timeMode===24h
+       (parseHM24(form.startText)  1860)
+       (parseHM12(form.startText, form.startMer)  1860);
+    const mins = clamp(form.dur,10,100);
+    const endMinVal = (startMinVal + mins)%(2460);
+    const start24 = minTo24(startMinVal);
+    const {place,gps} = defaultPlace(form.city);
+    const s = {
+      id Date.now()+Math.floor(Math.random()1e6),
+      originuser,
+      type form.cat,
+      hostType form.host===TENtion hostsplatformme,
+      city form.city,
+      timeFilter form.timeFilter===Any  guessTimeBucketFromMin(startMinVal)  form.timeFilter,
+      title form.title  defaultTitleFor(form.cat),
+      start start24,
+      totalMins mins,
+      totalSecs mins60,
+      secsLeft Math.max(30, Math.floor(mins600.9)),
+      attendees [], max form.cap,
+      desc form.desc  descFor(form.cat),
+      place, gps, who whoFor(form.cat), todo whatDo(form.cat),
+      reviews[], proofScore0, deposit0,
+      present [], extendedBy 0, isBrandfalse, brandName, brandTagline, reward,
+    };
+    setSlots(prev=[s,...prev]);
+    setCreateOpen(false);
+    setScreen(home);
+    setActiveCat(form.cat  );
+    setCity(form.city);
+    scrollRef.current.scrollTo({y0,animatedtrue});
+  };
+
+  const joinedList = useMemo(()= slots.filter(s=s.attendees.includes(ME)),[slots]);
+
+  return (
+    SafeAreaView style={styles.container}
+      { HEADER }
+      View style={styles.headerRow}
+        TouchableOpacity onPress={resetHome} style={{flexDirectionrow,alignItemsflex-end}}
+          Text style={styles.logo}TENtionText
+        TouchableOpacity
+        View style={{flexDirectionrow,gap8}}
+          TouchableOpacity style={styles.secondarySm} onPress={()=setScreen(my)}
+            Text style={styles.secondarySmT}MyText
+          TouchableOpacity
+          TouchableOpacity style={styles.primarySm} onPress={openCreate}
+            Text style={styles.primarySmT}+ CreateText
+          TouchableOpacity
+        View
+      View
+
+      {screen===home && (
+        ScrollView ref={scrollRef}
+          contentContainerStyle={{paddingBottom100}}
+          showsVerticalScrollIndicator={false}
+          overScrollMode=never
+          contentInsetAdjustmentBehavior=never
+          keyboardShouldPersistTaps=always
+        
+
+          { CATEGORIES 4 fixed columns }
+          CategoryRow active={activeCat} onPick={(k)= setActiveCat(prev= prev===k  k)} 
+
+          { Row distance • duration • sort }
+          View style={styles.row3}
+            Stepper label=mi value={radius}
+                     onMinus={()=setRadius(clamp(radius-1,1,50))}
+                     onPlus={()=setRadius(clamp(radius+1,1,50))} 
+            Stepper label=min value={durFilter} step={10}
+                     onMinus={()=setDurFilter(clamp(durFilter-10,10,100))}
+                     onPlus={()=setDurFilter(clamp(durFilter+10,10,100))} 
+            TouchableOpacity style={styles.sortBtn} onPress={()=setShowSortSheet(true)}
+              Text style={styles.sortBtnT}{sortBy}Text
+            TouchableOpacity
+          View
+
+          { Row time • cities • more }
+          View style={styles.rowCity}
+            TouchableOpacity style={styles.filterChip} onPress={()=setShowTimeSheet(true)}
+              Text style={styles.filterChipT}Time • {timeOfDay}Text
+            TouchableOpacity
+            {[LA,SF,NYC,MIA].map(code=(
+              TouchableOpacity key={code}
+                onPress={()=setCity(code)}
+                style={[styles.cityChip, city===code && styles.cityChipActive]}
+                Text style={[styles.cityChipT, city===code && styles.cityChipTActive]}{code}Text
+              TouchableOpacity
+            ))}
+            TouchableOpacity style={styles.moreChip} onPress={()=setShowCitySheet(true)}
+              Text style={styles.moreChipT}More ▾Text
+            TouchableOpacity
+          View
+
+          { SEARCH }
+          TextInput
+            value={search} onChangeText={setSearch}
+            placeholder=Search title, venue, city, type…
+            placeholderTextColor=#7a8596
+            style={styles.search}
+          
+
+          { FEED }
+          {list.length===0 && (
+            View style={styles.empty}
+              Text style={styles.emptyT}No slots match.Text
+              Text style={styles.emptyS}Try widening distance, reducing duration, or clearing filters.Text
+            View
+          )}
+
+          {list.map(s=(
+            Card key={s.id} slot={s}
+              onDetails={()={ setSelId(s.id); setScreen(detail); }}
+              onPrimary={()= join(s)}
+            
+          ))}
+
+          View style={styles.noteBox}
+            Text style={styles.note}Meet in public. No DMs. Decide in 10.Text
+          View
+        ScrollView
+      )}
+
+      { SHEETS }
+      {showSortSheet && (
+        ActionSheet
+          title=Sort by
+          value={sortBy}
+          options={SORTS}
+          onPick={(v)={ setSortBy(v); setShowSortSheet(false); }}
+          onCancel={()=setShowSortSheet(false)}
+        
+      )}
+      {showCitySheet && (
+        CitySheet
+          current={city}
+          onPick={(v)={ setCity(v); setShowCitySheet(false); }}
+          onClose={()=setShowCitySheet(false)}
+        
+      )}
+      {showTimeSheet && (
+        TimeSheet
+          current={timeOfDay}
+          onPick={(v)={ setTimeOfDay(v); setShowTimeSheet(false); }}
+          onClose={()=setShowTimeSheet(false)}
+        
+      )}
+
+      { CREATE }
+      {screen===create && (
+        CreateModal form={form} setForm={setForm}
+          onClose={()=setScreen(home)} onCreate={createSlot} 
+      )}
+
+      { DETAILS }
+      {screen===detail && sel && (
+        Details slot={sel}
+          onBack={()=setScreen(home)}
+          onShare={()=shareSlot(sel)}
+          onJoin={()=join(sel)}
+          onLeave={()=leave(sel)}
+          onArrive={()=arrive(sel)}
+          onExtend={()=extend10(sel)}
+        
+      )}
+
+      { MY }
+      {screen===my && (
+        MyScreen profile={profile} setProfile={setProfile}
+          joined={joinedList} onBack={()=setScreen(home)}
+          onLeave={(slot)=leave(slot)}
+        
+      )}
+    SafeAreaView
+  );
+}
+
+ =========================
+   UI Components
+========================= 
+
+function Stepper({label,value,step=1,onMinus,onPlus}){
+  return(
+    View style={styles.stepper}
+      TouchableOpacity style={styles.stepBtn} onPress={onMinus}
+        Text style={styles.stepBtnT}−Text
+      TouchableOpacity
+      View style={styles.stepMid}
+        Text style={styles.stepVal}{value}Text
+        Text style={styles.stepLbl}{label}Text
+      View
+      TouchableOpacity style={styles.stepBtn} onPress={onPlus}
+        Text style={styles.stepBtnT}＋Text
+      TouchableOpacity
+    View
+  );
+}
+
+function CategoryRow({active,onPick}){
+  const W = Dimensions.get(window).width;
+  const gap = 8, side=12;
+  const CAT_W = Math.floor((W - side2 - gap3)4);
+  return (
+    View style={{flexDirectionrow,gap,marginBottom8,paddingHorizontal12}}
+      {CATS.map(c={
+        const on = active===c.key;
+        return (
+          TouchableOpacity key={c.key}
+            onPress={()=onPick(c.key)}
+            style={[
+              styles.catChipFixed,
+              {borderColorc.color,widthCAT_W},
+              on && {backgroundColorc.color+22}
+            ]}
+            Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+              style={[styles.catTextCenter,{colorc.color}]}
+              {c.icon} {c.label}
+            Text
+          TouchableOpacity
+        );
+      })}
+    View
+  );
+}
+
+function Card({slot,onDetails,onPrimary}){
+  const ratio = slot.totalSecs  Math.max(0, slot.secsLeft0)slot.totalSecs  0;
+  const color = colorFor(slot.type);
+  return(
+    View style={[styles.card,{borderColorcolor}]}
+      View style={styles.cardHead}
+        Text style={[styles.cardType,{color}]}
+          {iconFor(slot.type)} {slot.type}  •  {cityName(slot.city)}  •  {slot.timeFilter}
+        Text
+        Text style={styles.countRight}⏳ {t3(slot.secsLeft0)}Text
+      View
+
+      Text style={styles.cardTitle} numberOfLines={2}{slot.title}Text
+      Text style={styles.cardLine}
+        🕓 {slot.start} • {slot.totalMins} min
+      Text
+      Text style={styles.cardLine}
+        👥 {slot.attendees.length}{slot.max} • {ratingStr(slot.proofScore)}
+      Text
+
+      View style={styles.progOuter}
+        View
+          style={[
+            styles.progInner,
+            {
+              width`${Math.max(4,ratio100)}%`,
+              backgroundColor
+                ratio0.3  #6AAEFF 
+                ratio0.1  #FF9F1A 
+                #FF5A5A
+            }
+          ]}
+        
+      View
+
+      Text style={styles.cardDesc} numberOfLines={2}{slot.desc}Text
+
+      View style={styles.cardFoot}
+        TouchableOpacity style={styles.outBtn} onPress={onDetails}
+          Text style={styles.outBtnT}DetailsText
+        TouchableOpacity
+        TouchableOpacity style={styles.inBtn} onPress={onPrimary}
+          Text style={styles.inBtnT}Check InText
+        TouchableOpacity
+      View
+    View
+  );
+}
+
+function Details({slot,onBack,onShare,onJoin,onLeave,onArrive,onExtend}){
+  const joined = slot.attendees.includes(ME);
+  const ratio  = slot.totalSecs  Math.max(0, slot.secsLeft0)slot.totalSecs  0;
+  const here   = slot.present.includes(ME);
+  const canExtend = joined && here && (slot.secsLeft0)  0 && (slot.secsLeft0) = 560 && (slot.extendedBy0)  20;
+
+  let primaryLabel = null;
+  let primaryAction = null;
+
+  if(!joined && slot.secsLeft0){
+    primaryLabel = Check In;
+    primaryAction = onJoin;
+  } else if(joined && !here && slot.secsLeft0){
+    primaryLabel = Arrive at spot;
+    primaryAction = onArrive;
+  } else if(canExtend){
+    primaryLabel = +10 min (if everyone wants);
+    primaryAction = onExtend;
+  }
+
+  return(
+    View style={styles.detailWrap}
+      SafeAreaView style={{flex1}}
+        ScrollView contentContainerStyle={{padding14,paddingBottom120}} showsVerticalScrollIndicator={false}
+          TouchableOpacity onPress={onBack}
+            Text style={styles.back}← BackText
+          TouchableOpacity
+          View style={[styles.detailsBox,{borderColorcolorFor(slot.type)}]}
+            Text style={styles.detailsTitle}{slot.title}Text
+            Text style={styles.detailsTimer}⏳ {t3(slot.secsLeft0)}Text
+            Text style={styles.detailsLine}
+              {cityName(slot.city)} ({cityState(slot.city)}) • {slot.timeFilter}
+            Text
+            Text style={styles.detailsLine}
+              🕓 {slot.start} • {slot.totalMins} min
+            Text
+            Text style={styles.detailsLine}
+              👥 {slot.attendees.length}{slot.max} • {ratingStr(slot.proofScore)}
+            Text
+
+            View style={styles.progOuterBig}
+              View
+                style={[
+                  styles.progInner,
+                  {
+                    width`${Math.max(4,ratio100)}%`,
+                    backgroundColor
+                      ratio0.3  #6AAEFF 
+                      ratio0.1  #FF9F1A 
+                      #FF5A5A
+                  }
+                ]}
+              
+            View
+
+            { Where }
+            Text style={styles.sectionH}📍 WhereText
+            Text style={styles.sceneText}{slot.place}Text
+            Text style={styles.gpsT}
+              GPS {twoFixed(slot.gps.[0])}, {twoFixed(slot.gps.[1])}
+            Text
+
+            { Who }
+            Text style={styles.sectionH}👥 Who it’s forText
+            Text style={styles.sceneText}{slot.who}Text
+
+            { What we'll do }
+            Text style={styles.sectionH}📝 What we’ll doText
+            Bullet items={slot.todo} 
+
+            { Duration }
+            Text style={styles.sectionH}🕒 DurationText
+            Text style={styles.sceneText}
+              {slot.totalMins} minutes. Extend only if everyone agrees.
+            Text
+
+            { Brand }
+            {slot.isBrand && !!slot.brandName && (
+              
+                Text style={styles.sectionH}🤝 Hosted withText
+                Text style={styles.sceneText}{slot.brandName}Text
+                {slot.brandTagline  (
+                  Text style={styles.sceneText}{slot.brandTagline}Text
+                )  null}
+                {slot.reward  (
+                  Text style={[styles.sceneText,{marginTop4}]}
+                    Perk {slot.reward}
+                  Text
+                )  null}
+              
+            )}
+
+            { How it works }
+            Text style={styles.sectionH}⚙️ How it worksText
+            Bullet items={[
+              Check in inside the app before you meet,
+              Find each other at the exact pinspot,
+              Wrap on time; extend only if everyone says yes,
+            ]} 
+
+            { Safety }
+            Text style={styles.sectionH}✅ Safety & House RulesText
+            Bullet items={[
+              Meet in bright public places only,
+              No DMs or contact exchange inside the app,
+              You can leave anytime; respect is mandatory,
+              If you share location later, it’s only used during the slot and then deleted.,
+            ]} 
+
+            View style={{flexDirectionrow,gap10,marginTop14,flexWrapwrap}}
+              TouchableOpacity style={[styles.secondaryBtn,{flexGrow1}]} onPress={onShare}
+                Text style={styles.secondaryText}ShareText
+              TouchableOpacity
+
+              {primaryAction && (
+                TouchableOpacity style={[styles.primaryBtn,{flexGrow1}]} onPress={primaryAction}
+                  Text style={styles.primaryText}{primaryLabel}Text
+                TouchableOpacity
+              )}
+
+              {joined && slot.secsLeft0 && (
+                TouchableOpacity
+                  style={[
+                    styles.secondaryBtn,
+                    {borderColor#FF5A5A,backgroundColor#FF5A5A22,flexGrow1}
+                  ]}
+                  onPress={onLeave}
+                  Text style={[styles.secondaryText,{color#FF5A5A}]}LeaveText
+                TouchableOpacity
+              )}
+            View
+          View
+        ScrollView
+      SafeAreaView
+    View
+  );
+}
+const twoFixed=(n)= (typeof n===number  n.toFixed(6)  —);
+
+function Bullet({items=[]}){
+  return (
+    View style={{gap6,marginTop6}}
+      {items.map((t,i)=(
+        Text key={i} style={styles.sceneText}• {t}Text
+      ))}
+    View
+  );
+}
+
+function ActionSheet({title,value,options,onPick,onCancel}){
+  return(
+    View style={styles.sheetWrap}
+      TouchableOpacity style={{flex1}} onPress={onCancel} 
+      View style={styles.sheetCard}
+        View style={styles.sheetHandle}
+        Text style={styles.sheetTitle}{title}Text
+        {options.map(opt=(
+          TouchableOpacity key={opt} style={styles.sheetItem} onPress={()=onPick(opt)}
+            Text style={[styles.sheetItemT, value===opt && {color#3EC6FF}]}
+              {opt}{value===opt •}
+            Text
+          TouchableOpacity
+        ))}
+        TouchableOpacity
+          style={[styles.primaryBtn,{marginTop6}]}
+          onPress={onCancel}
+          Text style={styles.primaryText}DoneText
+        TouchableOpacity
+      View
+    View
+  );
+}
+
+function CitySheet({current,onPick,onClose}){
+  const cities = CITY_LIST.filter(c=![ALL,LA,SF,NYC,MIA].includes(c.code));
+  return(
+    View style={styles.sheetWrap}
+      TouchableOpacity style={{flex1}} onPress={onClose} 
+      View style={styles.sheetCardTall}
+        View style={styles.sheetHandle}
+        Text style={styles.sheetTitle}Select cityText
+        ScrollView style={{maxHeight420}} showsVerticalScrollIndicator={false} overScrollMode=never
+          TouchableOpacity style={styles.cityRow} onPress={()=onPick(ALL)}
+            Text style={[styles.cityRowT, current===ALL && {color#3EC6FF}]}
+              All Cities
+            Text
+          TouchableOpacity
+          TouchableOpacity style={styles.cityRow} onPress={()=onPick(LA)}
+            Text style={[styles.cityRowT, current===LA && {color#3EC6FF}]}
+              Los Angeles (LA)
+            Text
+          TouchableOpacity
+          TouchableOpacity style={styles.cityRow} onPress={()=onPick(SF)}
+            Text style={[styles.cityRowT, current===SF && {color#3EC6FF}]}
+              San Francisco (SF)
+            Text
+          TouchableOpacity
+          TouchableOpacity style={styles.cityRow} onPress={()=onPick(NYC)}
+            Text style={[styles.cityRowT, current===NYC && {color#3EC6FF}]}
+              New York City (NYC)
+            Text
+          TouchableOpacity
+          TouchableOpacity style={styles.cityRow} onPress={()=onPick(MIA)}
+            Text style={[styles.cityRowT, current===MIA && {color#3EC6FF}]}
+              Miami (MIA)
+            Text
+          TouchableOpacity
+          {cities.map(c=(
+            TouchableOpacity key={c.code} style={styles.cityRow} onPress={()=onPick(c.code)}
+              Text style={[styles.cityRowT, current===c.code && {color#3EC6FF}]}
+                {c.name} ({c.code})
+              Text
+            TouchableOpacity
+          ))}
+        ScrollView
+        TouchableOpacity
+          style={[styles.primaryBtn,{marginTop10}]}
+          onPress={onClose}
+          Text style={styles.primaryText}DoneText
+        TouchableOpacity
+      View
+    View
+  );
+}
+
+function TimeSheet({current,onPick,onClose}){
+  return(
+    View style={styles.sheetWrap}
+      TouchableOpacity style={{flex1}} onPress={onClose} 
+      View style={styles.sheetCard}
+        View style={styles.sheetHandle}
+        Text style={styles.sheetTitle}Time of dayText
+        View style={{flexDirectionrow,flexWrapwrap,gap8,marginTop8}}
+          {TIME_SLOTS.map(t=(
+            TouchableOpacity
+              key={t}
+              style={[styles.timeChip, current===t && styles.timeChipActive]}
+              onPress={()=onPick(t)}
+              Text
+                style={[
+                  styles.timeChipT,
+                  current===t && styles.timeChipTActive
+                ]}
+                {t}
+              Text
+            TouchableOpacity
+          ))}
+        View
+        TouchableOpacity
+          style={[styles.primaryBtn,{marginTop16}]}
+          onPress={onClose}
+          Text style={styles.primaryText}DoneText
+        TouchableOpacity
+      View
+    View
+  );
+}
+
+ =========================
+   Create Modal (Full-screen)
+========================= 
+function CreateModal({form,setForm,onClose,onCreate}){
+   capacity (min 2, no max)
+  const decCap = ()= setForm(f=({...f,cap Math.max(2, (f.cap2)-1)}));
+  const incCap = ()= setForm(f=({...f,cap (f.cap2)+1}));
+
+   time helpers
+  const startMin = ()={
+    return form.timeMode===24h
+       (parseHM24(form.startText)  1860)
+       (parseHM12(form.startText, form.startMer)  1860);
+  };
+  const endMinFromState = ()={
+    const m = form.timeMode===24h
+       parseHM24(form.endText)
+       parseHM12(form.endText, form.endMer);
+    if(m!=null) return m;
+    return (startMin() + form.dur60)%(2460);
+  };
+
+  const syncEndFromDuration = (newDur)={
+    const sm = startMin();
+    const em = (sm + newDur60)%(2460);
+    if(form.timeMode===24h){
+      setForm(f=({
+        ...f,
+        durnewDur,
+        endTextminTo24(em),
+        endMerminTo12(em).mer
+      }));
+    }else{
+      const e12 = minTo12(em);
+      setForm(f=({
+        ...f,
+        durnewDur,
+        endTexte12.text,
+        endMere12.mer
+      }));
+    }
+  };
+
+  const onChangeStart = (raw)={
+    const txt = formatHMInput(raw);
+    let sm = 1860;
+    if(form.timeMode===24h){
+      sm = parseHM24(txt)  sm;
+    }else{
+      sm = parseHM12(txt, form.startMer)  sm;
+    }
+    const em = (sm + form.dur60)%(2460);
+    if(form.timeMode===24h){
+      setForm(f=({
+        ...f,
+        startTexttxt,
+        endTextminTo24(em),
+        startMerminTo12(sm).mer,
+        endMerminTo12(em).mer
+      }));
+    }else{
+      const s12 = minTo12(sm), e12 = minTo12(em);
+      setForm(f=({
+        ...f,
+        startTextformatHMInput(txt),
+        startMers12.mer,
+        endTexte12.text,
+        endMere12.mer
+      }));
+    }
+  };
+
+  const onChangeEnd = (raw)={
+    const txt = formatHMInput(raw);
+    let em = endMinFromState();
+    em = form.timeMode===24h
+       (parseHM24(txt)  em)
+       (parseHM12(txt, form.endMer)  em);
+     recompute duration (snap to 10)
+    let diff = (em - startMin());
+    if(diff0) diff += 2460;
+    let snapped = clamp(Math.round(diff10)10, 10, 100);
+    syncEndFromDuration(snapped);
+  };
+
+  const switchMode = (mode)={
+    const sm = startMin();
+    const em = (sm + form.dur60)%(2460);
+    if(mode===24h){
+      setForm(f=({
+        ...f,
+        timeMode24h,
+        startTextminTo24(sm),
+        endTextminTo24(em),
+        startMerminTo12(sm).mer,
+        endMerminTo12(em).mer
+      }));
+    }else{
+      const s12 = minTo12(sm), e12 = minTo12(em);
+      setForm(f=({
+        ...f,
+        timeMode12h,
+        startTexts12.text,
+        endTexte12.text,
+        startMers12.mer,
+        endMere12.mer
+      }));
+    }
+  };
+
+  const setDur=(v)= syncEndFromDuration(clamp(v,10,100));
+
+   AMPM 토글 헬퍼 – 여기서 버그 고침
+  const toggleStartMer = (m)={
+    setForm(f={
+      const txt = formatHMInput(f.startText);
+      let sm = parseHM12(txt  0600, m);
+      if(sm == null) sm = 1860;
+      const em = (sm + (f.dur10)60) % (2460);
+      const s12 = minTo12(sm);
+      const e12 = minTo12(em);
+      return {
+        ...f,
+        timeMode12h,
+        startMerm,
+        startTexts12.text,
+        endTexte12.text,
+        endMere12.mer,
+      };
+    });
+  };
+
+  const toggleEndMer = (m)={
+    setForm(f={
+      const txtS = formatHMInput(f.startText);
+      const txtE = formatHMInput(f.endText);
+      let sm = parseHM12(txtS  0600, f.startMer  PM);
+      if(sm == null) sm = 1860;
+      let em = parseHM12(txtE  0610, m);
+      if(em == null) em = (sm + (f.dur10)60) % (2460);
+
+      let diff = em - sm;
+      if(diff  0) diff += 2460;
+      let snapped = clamp(Math.round(diff10)10, 10, 100);
+      const finalEnd = (sm + snapped60) % (2460);
+
+      const s12 = minTo12(sm);
+      const e12 = minTo12(finalEnd);
+
+      return {
+        ...f,
+        timeMode12h,
+        dur snapped,
+        startTexts12.text,
+        startMers12.mer,
+        endTexte12.text,
+        endMere12.mer,
+      };
+    });
+  };
+
+   duration rows for perfect grid (5 + 5)
+  const row1 = DURATIONS.slice(0,5);
+  const row2 = DURATIONS.slice(5);
+
+  const Half = ({children})= View style={{flex1}}{children}View;
+
+  return(
+    View style={styles.modalWrap}
+      SafeAreaView style={{flex1}}
+        View style={styles.modalHead}
+          Text style={styles.modalTitle}Create a SlotText
+          TouchableOpacity onPress={onClose}
+            Text style={styles.modalClose}✕Text
+          TouchableOpacity
+        View
+
+        KeyboardAvoidingView style={{flex1}} behavior={Platform.OS===iospaddingundefined}
+          ScrollView
+            style={{flex1}}
+            contentContainerStyle={{padding14,paddingBottom160}}
+            keyboardShouldPersistTaps=always
+            showsVerticalScrollIndicator={false}
+            overScrollMode=never
+          
+
+            { Category 2x2 grid }
+            Text style={styles.formLabel}CategoryText
+            View style={styles.grid2x2}
+              {CATS.map(c=(
+                TouchableOpacity key={c.key}
+                  onPress={()=setForm(f=({
+                    ...f,
+                    catc.key,
+                    title defaultTitleFor(c.key),
+                    desc descFor(c.key)
+                  }))}
+                  style={[
+                    styles.formChip,
+                    {borderColorc.color},
+                    form.cat===c.key && {backgroundColorc.color+22}
+                  ]}
+                  Text
+                    style={[styles.formChipT,{colorc.color,textAligncenter}]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    {c.icon} {c.label}
+                  Text
+                TouchableOpacity
+              ))}
+            View
+
+            { Host toggle }
+            Text style={styles.formLabel}HostText
+            View style={styles.twoCols}
+              Half
+                TouchableOpacity
+                  onPress={()=setForm(f=({...f,hostI host}))}
+                  style={[styles.toggle, form.host===I host && styles.toggleOn]}
+                  Text style={[styles.toggleT, form.host===I host && styles.toggleTOn]}I hostText
+                TouchableOpacity
+              Half
+              Half
+                TouchableOpacity
+                  onPress={()=setForm(f=({...f,hostTENtion hosts}))}
+                  style={[styles.toggle, form.host===TENtion hosts && styles.toggleOn]}
+                  Text style={[styles.toggleT, form.host===TENtion hosts && styles.toggleTOn]}TENtion hostsText
+                TouchableOpacity
+              Half
+            View
+
+            { Capacity (min 2, no max) }
+            Text style={styles.formLabel}CapacityText
+            View style={styles.stepper}
+              TouchableOpacity style={styles.stepBtn} onPress={decCap}
+                Text style={styles.stepBtnT}−Text
+              TouchableOpacity
+              View style={styles.stepMid}
+                Text style={styles.stepVal}{form.cap}Text
+                Text style={styles.stepLbl}peopleText
+              View
+              TouchableOpacity style={styles.stepBtn} onPress={incCap}
+                Text style={styles.stepBtnT}＋Text
+              TouchableOpacity
+            View
+
+            { City & Time }
+            Text style={styles.formLabel}City & TimeText
+            View style={styles.twoCols}
+              Half
+                Picker
+                  button=City
+                  value={cityName(form.city)}
+                  onPress={()=setForm(f=({...f, _cityPicktrue}))}
+                
+              Half
+              Half
+                Picker
+                  button=Time
+                  value={form.timeFilter}
+                  onPress={()=setForm(f=({...f, _timePicktrue}))}
+                
+              Half
+            View
+            {form._cityPick && (
+              CitySheet
+                current={form.city}
+                onPick={(v)=setForm(f=({...f,cityv,_cityPickfalse}))}
+                onClose={()=setForm(f=({...f,_cityPickfalse}))}
+              
+            )}
+            {form._timePick && (
+              TimeSheet
+                current={form.timeFilter}
+                onPick={(v)=setForm(f=({...f,timeFilterv,_timePickfalse}))}
+                onClose={()=setForm(f=({...f,_timePickfalse}))}
+              
+            )}
+
+            { Start  End }
+            Text style={styles.formLabel}Start  EndText
+            View style={{flexDirectionrow,gap8,marginBottom8}}
+              TouchableOpacity
+                onPress={()=switchMode(24h)}
+                style={[styles.modeChip, form.timeMode===24h && styles.modeChipOn]}
+                Text
+                  style={[styles.modeChipT, form.timeMode===24h && styles.modeChipTOn]}
+                  24h
+                Text
+              TouchableOpacity
+              TouchableOpacity
+                onPress={()=switchMode(12h)}
+                style={[styles.modeChip, form.timeMode===12h && styles.modeChipOn]}
+                Text
+                  style={[styles.modeChipT, form.timeMode===12h && styles.modeChipTOn]}
+                  AM·PM
+                Text
+              TouchableOpacity
+            View
+
+            View style={styles.twoCols}
+              Half
+                TextInput
+                  style={[styles.input,styles.duo,styles.timeFont]}
+                  placeholder=HHMM
+                  placeholderTextColor=#738
+                  keyboardType=number-pad
+                  returnKeyType=next
+                  value={form.startText}
+                  onChangeText={onChangeStart}
+                  maxLength={5}
+                  autoCorrect={false}
+                  autoCapitalize=none
+                  blurOnSubmit={false}
+                  selectTextOnFocus
+                
+              Half
+              Half
+                TextInput
+                  style={[styles.input,styles.duo,styles.timeFont]}
+                  placeholder=HHMM
+                  placeholderTextColor=#738
+                  keyboardType=number-pad
+                  value={form.endText}
+                  onChangeText={onChangeEnd}
+                  maxLength={5}
+                  autoCorrect={false}
+                  autoCapitalize=none
+                  blurOnSubmit={false}
+                  selectTextOnFocus
+                
+              Half
+            View
+
+            { Separate AMPM for each (only in 12h mode) }
+            {form.timeMode===12h && (
+              View style={{flexDirectionrow,gap8,marginTop6,marginBottom2}}
+                View style={{flex1}}
+                  Text style={styles.amLabel}StartText
+                  View style={{flexDirectionrow,gap6}}
+                    {[AM,PM].map(m=(
+                      TouchableOpacity
+                        key={m}
+                        onPress={()=toggleStartMer(m)}
+                        style={[styles.amChip, form.startMer===m && styles.amChipOn]}
+                        Text
+                          style={[
+                            styles.amChipT,
+                            form.startMer===m && styles.amChipTOn
+                          ]}
+                          {m}
+                        Text
+                      TouchableOpacity
+                    ))}
+                  View
+                View
+                View style={{flex1}}
+                  Text style={styles.amLabel}EndText
+                  View style={{flexDirectionrow,gap6}}
+                    {[AM,PM].map(m=(
+                      TouchableOpacity
+                        key={m}
+                        onPress={()=toggleEndMer(m)}
+                        style={[styles.amChip, form.endMer===m && styles.amChipOn]}
+                        Text
+                          style={[
+                            styles.amChipT,
+                            form.endMer===m && styles.amChipTOn
+                          ]}
+                          {m}
+                        Text
+                      TouchableOpacity
+                    ))}
+                  View
+                View
+              View
+            )}
+
+            { Preview }
+            Text style={{color#9aa,marginTop4}}
+              Preview (AMPM) {minTo12(startMin()).text} {minTo12(startMin()).mer} —{ }
+              {minTo12((startMin()+form.dur60)%(2460)).text}{ }
+              {minTo12((startMin()+form.dur60)%(2460)).mer}
+            Text
+
+            { Duration grid }
+            Text style={[styles.formLabel,{marginTop10}]}DurationText
+            View style={styles.durRow}
+              {row1.map(n=(
+                TouchableOpacity
+                  key={n}
+                  style={[styles.durChip, form.dur===n && styles.durChipOn]}
+                  onPress={()=setDur(n)}
+                  Text
+                    style={[
+                      styles.durChipT,
+                      form.dur===n && styles.durChipTOn
+                    ]}
+                    {n} min
+                  Text
+                TouchableOpacity
+              ))}
+            View
+            View style={styles.durRow}
+              {row2.map(n=(
+                TouchableOpacity
+                  key={n}
+                  style={[styles.durChip, form.dur===n && styles.durChipOn]}
+                  onPress={()=setDur(n)}
+                  Text
+                    style={[
+                      styles.durChipT,
+                      form.dur===n && styles.durChipTOn
+                    ]}
+                    {n} min
+                  Text
+                TouchableOpacity
+              ))}
+            View
+
+            { Title  Description }
+            Text style={styles.formLabel}TitleText
+            TextInput
+              style={styles.input}
+              placeholder=Slot title
+              placeholderTextColor=#738
+              value={form.title}
+              onChangeText={t=setForm(f=({...f,titlet}))}
+            
+
+            Text style={styles.formLabel}DescriptionText
+            TextInput
+              style={[styles.input,{minHeight90,maxHeight120}]}
+              multiline
+              placeholder=Short description
+              placeholderTextColor=#738
+              value={form.desc}
+              onChangeText={t=setForm(f=({...f,desct}))}
+            
+
+            View style={{flexDirectionrow,gap8,marginTop8}}
+              TouchableOpacity
+                style={styles.secondaryBtn}
+                onPress={()=Alert.alert(Safety,Meet in bright public places. Share your plan with a friend.)}
+                Text style={styles.secondaryText}Safety TipsText
+              TouchableOpacity
+              TouchableOpacity style={styles.primaryBtn} onPress={onCreate}
+                Text style={styles.primaryText}CreateText
+              TouchableOpacity
+            View
+          ScrollView
+        KeyboardAvoidingView
+      SafeAreaView
+    View
+  );
+}
+
+function Picker({button,value,onPress}){
+  return(
+    TouchableOpacity style={styles.picker} onPress={onPress}
+      Text style={styles.pickerT}
+        {button} Text style={{color#fff}}{value}Text
+      Text
+    TouchableOpacity
+  );
+}
+
+function MyScreen({profile,setProfile,joined,onBack,onLeave}){
+  return (
+    View style={styles.detailWrap}
+      SafeAreaView style={{flex1}}
+        View style={{
+          padding14,
+          flexDirectionrow,
+          justifyContentspace-between,
+          alignItemscenter
+        }}
+          TouchableOpacity onPress={onBack}
+            Text style={styles.back}← BackText
+          TouchableOpacity
+          Text style={{color#fff,fontWeight900,fontSize18}}My ProfileText
+          View style={{width40}}
+        View
+
+        ScrollView
+          contentContainerStyle={{padding14,paddingTop0,paddingBottom120}}
+          showsVerticalScrollIndicator={false}
+        
+          { Avatar + NameBio }
+          View style={styles.profileCard}
+            View style={{flexDirectionrow,gap12,alignItemscenter}}
+              View style={styles.avatarWrap}
+                {profile.avatar  (
+                  Image source={{uriprofile.avatar}} style={styles.avatarImg}
+                )  (
+                  Text style={styles.avatarInit}
+                    {(profile.nameY).charAt(0).toUpperCase()}
+                  Text
+                )}
+              View
+              View style={{flex1}}
+                TextInput
+                  style={styles.input}
+                  placeholder=Display name
+                  placeholderTextColor=#8a6aa8
+                  value={profile.name}
+                  onChangeText={(t)=setProfile(p=({...p,namet}))}
+                
+                TextInput
+                  style={[styles.input,{minHeight70}]}
+                  placeholder=Short bio (who you are, what you like)
+                  placeholderTextColor=#8a6aa8
+                  multiline
+                  value={profile.bio}
+                  onChangeText={(t)=setProfile(p=({...p,biot}))}
+                
+                TextInput
+                  style={styles.input}
+                  placeholder=Avatar image URL (optional)
+                  placeholderTextColor=#8a6aa8
+                  value={profile.avatar}
+                  onChangeText={(t)=setProfile(p=({...p,avatart}))}
+                
+              View
+            View
+            View style={{marginTop10}}
+              Text style={{color#9aa,marginBottom6}}PreviewText
+              View style={styles.previewBox}
+                Text style={{color#fff,fontWeight900,fontSize16}}
+                  {profile.nameYour name}
+                Text
+                Text style={{color#cbd3df,marginTop4}}
+                  {profile.bioWrite a short intro so others can recognize you.}
+                Text
+              View
+            View
+          View
+
+          { Joined slots }
+          Text style={[styles.sectionH,{marginTop10}]}✅ My Check-insText
+          {joined.length===0 && (
+            Text style={styles.sceneText}No check-ins yet.Text
+          )}
+          {joined.map(s=(
+            View key={s.id} style={[styles.card,{borderColorcolorFor(s.type)}]}
+              Text style={styles.cardTitle}{s.title}Text
+              Text style={styles.cardLine}
+                {s.type} • {cityName(s.city)} • {s.start} • {s.totalMins} min
+              Text
+              View style={{flexDirectionrow,gap10,marginTop8}}
+                TouchableOpacity
+                  style={styles.outBtn}
+                  onPress={()=Alert.alert(WhenWhere, `${cityName(s.city)}n${s.start} • ${s.totalMins} min`)}
+                  Text style={styles.outBtnT}DetailsText
+                TouchableOpacity
+                TouchableOpacity
+                  style={[
+                    styles.secondaryBtn,
+                    {borderColor#FF5A5A,backgroundColor#FF5A5A22}
+                  ]}
+                  onPress={()=onLeave(s)}
+                  Text style={[styles.secondaryText,{color#FF5A5A}]}LeaveText
+                TouchableOpacity
+              View
+            View
+          ))}
+        ScrollView
+      SafeAreaView
+    View
+  );
+}
+
+ =========================
+   Utilities (visual)
+========================= 
+function colorFor(type){
+  if(type===Vibes) return #FF5CAB;
+  if(type===Friends) return #2EE778;
+  if(type===Workout) return #FFA23B;  Move
+  if(type===Try) return #6AAEFF;
+  return #6AAEFF;
+}
+function iconFor(type){
+  if(type===Vibes) return ✨;
+  if(type===Friends) return 🤝;
+  if(type===Workout) return 💪;
+  if(type===Try) return 🧪;
+  return 💬;
+}
+function defaultTitleFor(cat){
+  if(cat===Vibes)   return Walk & Talk;
+  if(cat===Friends) return Bench Talk;
+  if(cat===Workout) return Jog & Talk;
+  if(cat===Try)     return Try Something New;
+  return Honest Talk;
+}
+
+ =========================
+   Styles
+========================= 
+const CONTROL_H = 40;
+
+const styles = StyleSheet.create({
+  container{flex1,backgroundColor#0D0F13},
+
+  headerRow{
+    flexDirectionrow,
+    alignItemscenter,
+    justifyContentspace-between,
+    paddingHorizontal12,
+    paddingTop6,
+    marginBottom8,
+    zIndex2
+  },
+  logo{color#fff,fontSize28,fontWeight900},
+  primarySm{backgroundColor#3EC6FF,paddingVertical8,paddingHorizontal12,borderRadius10},
+  primarySmT{color#0D0F13,fontWeight900},
+  secondarySm{backgroundColor#3EC6FF22,borderWidth1,borderColor#3EC6FF,paddingVertical8,paddingHorizontal12,borderRadius10},
+  secondarySmT{color#3EC6FF,fontWeight800},
+
+   Category fixed
+  catChipFixed{
+    height44,
+    paddingHorizontal10,
+    borderWidth2,
+    borderRadius14,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  catTextCenter{fontWeight900,fontSize14, textAligncenter},
+
+   Row2 compact
+  row3{flexDirectionrow,gap8,marginBottom8,paddingHorizontal12},
+  stepper{
+    flex1,
+    heightCONTROL_H,
+    borderRadius12,
+    backgroundColor#161A22,
+    borderWidth1,
+    borderColor#2A2F38,
+    flexDirectionrow,
+    overflowhidden
+  },
+  stepBtn{width44, alignItemscenter, justifyContentcenter},
+  stepBtnT{color#fff,fontSize18,fontWeight900},
+  stepMid{
+    flex1,
+    alignItemscenter,
+    justifyContentcenter,
+    borderLeftWidth1,
+    borderRightWidth1,
+    borderColor#2A2F38
+  },
+  stepVal{color#fff,fontWeight900,fontSize16,lineHeight18},
+  stepLbl{color#9aa,fontWeight700,fontSize11,marginTop2},
+
+  sortBtn{
+    width160,
+    heightCONTROL_H,
+    borderRadius12,
+    backgroundColor#161A22,
+    borderWidth1,
+    borderColor#2A2F38,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  sortBtnT{color#fff,fontWeight900},
+
+   Row3 citiestime
+  rowCity{flexDirectionrow,gap8,marginBottom8,flexWrapnowrap,paddingHorizontal12},
+  filterChip{
+    height36,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  filterChipT{color#ddd,fontWeight800,fontSize12},
+  cityChip{
+    height36,
+    minWidth52,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  cityChipActive{backgroundColor#3A3F4A},
+  cityChipT{color#9aa,fontWeight800,fontSize12},
+  cityChipTActive{color#fff},
+  moreChip{
+    height36,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  moreChipT{color#ddd,fontWeight800,fontSize12},
+
+   Search
+  search{
+    backgroundColor#141821,
+    color#fff,
+    padding12,
+    borderRadius12,
+    borderWidth1,
+    borderColor#232833,
+    marginBottom8,
+    marginHorizontal12
+  },
+
+   Empty
+  empty{
+    padding14,
+    borderRadius12,
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    marginTop4,
+    marginHorizontal12
+  },
+  emptyT{color#fff,fontWeight900,marginBottom4},
+  emptyS{color#9aa},
+
+   Card
+  card{borderWidth2,borderRadius12,padding12,marginBottom12, marginHorizontal12},
+  cardHead{flexDirectionrow,justifyContentspace-between,alignItemscenter,marginBottom2},
+  cardType{fontWeight900,fontSize12},
+  countRight{color#cfd6e4,fontWeight800,fontSize12},
+  cardTitle{color#fff,fontSize18,fontWeight900,marginBottom4},
+  cardLine{color#bbb,fontSize12,marginBottom4},
+  cardDesc{color#bfe4bf,fontSize12,marginTop2},
+  progOuter{height6,backgroundColor#1A1D23,borderRadius6,overflowhidden,marginBottom6,marginTop4},
+  progOuterBig{height8,backgroundColor#1A1D23,borderRadius8,overflowhidden,marginBottom10,marginTop6},
+  progInner{height6,borderRadius6},
+  cardFoot{flexDirectionrow,gap10,marginTop8},
+  outBtn{borderWidth1,borderColor#555,paddingVertical8,paddingHorizontal14,borderRadius10},
+  outBtnT{color#ddd,fontWeight800,fontSize12},
+  inBtn{backgroundColor#3EC6FF,paddingVertical8,paddingHorizontal14,borderRadius10},
+  inBtnT{color#0D0F13,fontWeight900,fontSize12},
+
+   Details (fullscreen)
+  detailWrap{positionabsolute,left0,right0,top0,bottom0,backgroundColor#0D0F13,zIndex5},
+  back{color#9aa,marginBottom10,fontWeight800},
+  detailsBox{borderWidth2,borderRadius16,padding14},
+  detailsTitle{color#cfe4ff,fontSize24,fontWeight900,textAligncenter},
+  detailsTimer{color#fff,fontSize20,fontWeight900,textAligncenter,marginTop6, marginBottom6},
+  detailsLine{color#bbb,marginBottom6, textAligncenter},
+
+  sectionH{color#fff,fontWeight900,marginTop10,marginBottom6,fontSize16},
+  sceneText{color#dfe,lineHeight18,fontSize13},
+  gpsT{color#9aa,marginTop2,marginBottom6},
+
+   Note
+  noteBox{
+    marginTop10,
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    borderRadius12,
+    padding12,
+    marginHorizontal12
+  },
+  note{color#cbd3df,textAligncenter},
+
+   Sheets
+  sheetWrap{
+    positionabsolute,
+    left0,right0,top0,bottom0,
+    backgroundColor#0009,
+    justifyContentflex-end,
+    zIndex6
+  },
+  sheetCard{
+    backgroundColor#151821,
+    borderTopLeftRadius16,
+    borderTopRightRadius16,
+    padding14,
+    borderWidth1,
+    borderColor#2A2F38
+  },
+  sheetCardTall{
+    backgroundColor#151821,
+    borderTopLeftRadius16,
+    borderTopRightRadius16,
+    padding14,
+    borderWidth1,
+    borderColor#2A2F38,
+    maxHeight520
+  },
+  sheetHandle{
+    width44,
+    height4,
+    backgroundColor#2A2F38,
+    borderRadius2,
+    alignSelfcenter,
+    marginBottom10
+  },
+  sheetTitle{color#fff,fontSize18,fontWeight900,marginBottom8},
+  sheetItem{paddingVertical12,borderBottomWidth1,borderBottomColor#262B35},
+  sheetItemT{color#cfd6e4,fontSize16,fontWeight800},
+  cityRow{paddingVertical12,borderBottomWidth1,borderBottomColor#262B35},
+  cityRowT{color#cfd6e4,fontSize16,fontWeight800},
+  timeChip{
+    paddingVertical8,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#1A1D23,
+    borderWidth1,
+    borderColor#2A2F38
+  },
+  timeChipActive{backgroundColor#3A3F4A},
+  timeChipT{color#9aa,fontWeight800,fontSize12},
+  timeChipTActive{color#fff},
+
+   Create modal
+  modalWrap{positionabsolute,left0,right0,top0,bottom0,backgroundColor#0D0F13,zIndex7},
+  modalHead{
+    flexDirectionrow,
+    justifyContentspace-between,
+    alignItemscenter,
+    paddingHorizontal14,
+    paddingTop6,
+    paddingBottom10
+  },
+  modalTitle{color#fff,fontSize20,fontWeight900},
+  modalClose{color#9aa,fontSize22,fontWeight900},
+
+  formLabel{color#9aa,marginTop10,marginBottom6,fontWeight700},
+  formChip{
+    width48%,
+    height44,
+    paddingHorizontal12,
+    borderWidth2,
+    borderRadius12,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  formChipT{fontWeight900},
+  grid2x2{flexDirectionrow,flexWrapwrap,justifyContentspace-between,gap8},
+  twoCols{flexDirectionrow,gap8,alignItemsstretch},
+
+  toggle{
+    paddingVertical12,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#161A22,
+    borderWidth1,
+    borderColor#2A2F38,
+    alignItemscenter
+  },
+  toggleOn{backgroundColor#3A3F4A},
+  toggleT{color#9aa,fontWeight800},
+  toggleTOn{color#fff},
+
+  picker{
+    height42,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  pickerT{color#cfd6e4,fontWeight800},
+  input{
+    backgroundColor#151821,
+    color#fff,
+    padding12,
+    borderRadius10,
+    borderWidth1,
+    borderColor#2A2F38,
+    marginBottom8
+  },
+  timeFont{fontVariant['tabular-nums']},
+  duo{flex1},
+
+   Duration grid
+  durRow{flexDirectionrow,justifyContentspace-between,gap8,marginBottom8},
+  durChip{
+    flexBasis19%,
+    alignItemscenter,
+    justifyContentcenter,
+    paddingVertical10,
+    borderRadius10,
+    backgroundColor#1A1D23,
+    borderWidth1,
+    borderColor#2A2F38
+  },
+  durChipOn{backgroundColor#3A3F4A},
+  durChipT{color#9aa,fontWeight800,fontSize12},
+  durChipTOn{color#fff},
+
+   Mode & AMPM chips
+  modeChip{
+    paddingVertical8,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#1A1D23,
+    borderWidth1,
+    borderColor#2A2F38
+  },
+  modeChipOn{backgroundColor#3A3F4A},
+  modeChipT{color#9aa,fontWeight800,fontSize12},
+  modeChipTOn{color#fff},
+
+  amLabel{color#9aa,marginBottom4,fontSize12},
+  amChip{
+    paddingVertical6,
+    paddingHorizontal12,
+    borderRadius10,
+    backgroundColor#1A1D23,
+    borderWidth1,
+    borderColor#2A2F38
+  },
+  amChipOn{backgroundColor#3A3F4A},
+  amChipT{color#9aa,fontWeight800,fontSize12},
+  amChipTOn{color#fff},
+
+   Buttons common
+  primaryBtn{backgroundColor#3EC6FF,padding12,borderRadius10,flex1,alignItemscenter},
+  primaryText{color#0D0F13,textAligncenter,fontWeight900},
+  secondaryBtn{
+    backgroundColor#3EC6FF22,
+    borderColor#3EC6FF,
+    borderWidth1,
+    padding12,
+    borderRadius10,
+    flex1,
+    alignItemscenter
+  },
+  secondaryText{color#3EC6FF,textAligncenter,fontWeight800},
+
+   Profile
+  profileCard{
+    backgroundColor#151821,
+    borderWidth1,
+    borderColor#2A2F38,
+    borderRadius12,
+    padding12
+  },
+  avatarWrap{
+    width72,height72,
+    borderRadius36,
+    backgroundColor#262B35,
+    alignItemscenter,
+    justifyContentcenter
+  },
+  avatarImg{width72,height72,borderRadius36},
+  avatarInit{color#cfd6e4,fontWeight900,fontSize28},
+  previewBox{
+    backgroundColor#10131a,
+    borderWidth1,
+    borderColor#2A2F38,
+    borderRadius10,
+    padding10
+  },
+});

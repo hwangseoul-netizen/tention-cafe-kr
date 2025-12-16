@@ -1,0 +1,2240 @@
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  View,
+  Text,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  SafeAreaView,
+  TextInput,
+  PanResponder,
+  Dimensions,
+  Modal,
+  StatusBar,
+  Switch,
+  Animated,
+  Easing,
+} from "react-native";
+
+/**
+ * VISUMOF v2.0 (K-Beauty Light Theme)
+ * - 단일 App.js / 외부 의존성 X / TS X
+ * - 상단 탭(가로 스크롤) + 하단 이모지 내비
+ * - 시술(클리닉) 카테고리 최우선
+ * - 카테고리별 카드 테두리 색상
+ * - 피드(업체) / 커뮤니티(일반) / 업로드 / 비교 / 파트너 / 가이드
+ */
+
+const { width: SCREEN_W } = Dimensions.get("window");
+
+/* ===== 팔레트 (라이트 K-뷰티 톤) ===== */
+const PALETTE = {
+  bg: "#F7F8FA",
+  card: "#FFFFFF",
+  line: "#E4E6EC",
+  text: "#1E2233",
+  sub: "#6D7485",
+  brand: "#87D3FF", // 메인 파스텔 블루
+  brandSoft: "#D3F1FF",
+  brandMint: "#A6E7C4",
+  brandMintSoft: "#E5FAF0",
+  ok: "#6AD77B",
+  mid: "#79A6F3",
+  low: "#B1B1B1",
+  chip: "#EFF1F6",
+  dim: "#E6E9F0",
+  danger: "#F26D6D",
+};
+
+/* ===== 탭 / 카테고리 ===== */
+
+const TABS = ["피드", "커뮤니티", "업로드", "비교", "파트너", "가이드"];
+
+// 시술(클리닉) 최우선
+const CATS = [
+  "시술(클리닉)",
+  "전체",
+  "스킨케어",
+  "헤어",
+  "반영구",
+  "피트니스",
+  "자세교정",
+  "바디/다이어트",
+];
+
+/* 카테고리 → 테두리 색상 매핑 */
+function getCategoryBorderColor(category) {
+  if (!category) return PALETTE.line;
+
+  if (category.includes("시술")) return "#FFB8C8"; // 핑크
+  if (category.includes("스킨케어")) return "#A4E2FF"; // 스카이블루
+  if (category.includes("헤어")) return "#FFE6A7"; // 라이트 골드
+  if (category.includes("반영구")) return "#DDB8FF"; // 라벤더
+  if (category.includes("피트니스")) return "#C4F7B2"; // 라이트 그린
+  if (category.includes("자세교정")) return "#D7E5FF"; // 페일 블루
+  if (category.includes("바디")) return "#FFD6A5"; // 살몬 오렌지
+
+  return PALETTE.line;
+}
+
+/* ===== 샘플 데이터 ===== */
+
+const MOCK_FEED = [
+  {
+    id: "case-001",
+    user: "Jade",
+    category: "시술(클리닉)",
+    tags: ["#여드름흉터", "#레이저톤업", "#필터없음"],
+    before:
+      "https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?q=80&w=1200&auto=format&fit=crop",
+    after:
+      "https://images.unsplash.com/photo-1522335781184-c34e5b39c1b7?q=80&w=1200&auto=format&fit=crop",
+    trust: 92,
+    partner: "Glow Clinic",
+    location: "Gangnam",
+    days: 21,
+  },
+  {
+    id: "case-002",
+    user: "Min",
+    category: "헤어",
+    tags: ["#컷", "#레이어드", "#스타일링"],
+    before:
+      "https://images.unsplash.com/photo-1522335781184-5f0b7d5f5b1f?q=80&w=1200&auto=format&fit=crop",
+    after:
+      "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?q=80&w=1200&auto=format&fit=crop",
+    trust: 88,
+    partner: "W Hair Studio",
+    location: "Hongdae",
+    days: 0,
+  },
+  {
+    id: "case-003",
+    user: "Sol",
+    category: "바디/다이어트",
+    tags: ["#체지방감소", "#3주변화", "#운동병행"],
+    before:
+      "https://images.unsplash.com/photo-1518611012118-696072aa579a?q=80&w=1200&auto=format&fit=crop",
+    after:
+      "https://images.unsplash.com/photo-1544717305-996b815c338c?q=80&w=1200&auto=format&fit=crop",
+    trust: 90,
+    partner: "Core PT Lab",
+    location: "Seongsu",
+    days: 60,
+  },
+];
+
+const USER_FEED_SAMPLE = [
+  {
+    id: "u-001",
+    user: "Luna",
+    desc: "3주 홈트 + 식단 병행! 체력도 오르고 자신감이 생겼어요 💪",
+    tags: ["#홈트", "#다이어트", "#자기관리"],
+    before:
+      "https://images.unsplash.com/photo-1518611012118-696072aa579a?q=80&w=1200&auto=format&fit=crop",
+    after:
+      "https://images.unsplash.com/photo-1544717305-996b815c338c?q=80&w=1200&auto=format&fit=crop",
+    likes: 128,
+    comments: 12,
+    verified: true,
+    anonymous: false,
+    visibility: "public",
+  },
+  {
+    id: "u-002",
+    user: "Neo",
+    desc: "두피 케어 2주차. 붉은기랑 비듬이 줄었어요.",
+    tags: ["#두피케어", "#모발", "#2주차"],
+    before:
+      "https://images.unsplash.com/photo-1519415943484-9fa18778ef04?q=80&w=1200&auto=format&fit=crop",
+    after:
+      "https://images.unsplash.com/photo-1495461199391-8c39f6db9a47?q=80&w=1200&auto=format&fit=crop",
+    likes: 67,
+    comments: 5,
+    verified: false,
+    anonymous: true,
+    visibility: "public",
+  },
+];
+
+const PARTNERS = [
+  {
+    id: "p-01",
+    name: "Glow Clinic",
+    field: "피부과 · 시술(클리닉)",
+    badge: "Verified",
+    addr: "서울 강남구",
+    phone: "02-000-0000",
+  },
+  {
+    id: "p-02",
+    name: "W Hair Studio",
+    field: "헤어살롱",
+    badge: "Pro",
+    addr: "서울 마포구",
+    phone: "02-111-1111",
+  },
+  {
+    id: "p-03",
+    name: "Core PT Lab",
+    field: "PT/체형교정 · 바디/다이어트",
+    badge: "Pro",
+    addr: "서울 성동구",
+    phone: "02-222-2222",
+  },
+];
+
+/* ===== 공통 컴포넌트 ===== */
+
+function SectionTitle({ children, right }) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 10,
+      }}
+    >
+      <Text
+        style={{
+          color: PALETTE.text,
+          fontSize: 18,
+          fontWeight: "800",
+        }}
+      >
+        {children}
+      </Text>
+      {right}
+    </View>
+  );
+}
+
+function Card({ children, style, accent }) {
+  const borderColor = accent || PALETTE.line;
+  const bgTint = accent
+    ? {
+        backgroundColor: "#FFFFFF",
+        shadowColor: accent,
+        shadowOpacity: 0.12,
+        shadowRadius: 8,
+        shadowOffset: { width: 0, height: 3 },
+        elevation: 2,
+      }
+    : {
+        backgroundColor: PALETTE.card,
+        shadowColor: "#000",
+        shadowOpacity: 0.03,
+        shadowRadius: 4,
+        shadowOffset: { width: 0, height: 2 },
+        elevation: 1,
+      };
+
+  return (
+    <View
+      style={[
+        {
+          borderRadius: 14,
+          padding: 12,
+          borderWidth: 1,
+          borderColor,
+        },
+        bgTint,
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
+
+function Chip({ label, active, onPress }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      style={{
+        backgroundColor: active ? PALETTE.brand : PALETTE.chip,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        borderRadius: 999,
+        marginRight: 8,
+        marginBottom: 8,
+        borderWidth: active ? 0 : 1,
+        borderColor: PALETTE.line,
+      }}
+    >
+      <Text
+        style={{
+          color: active ? "#0A1020" : PALETTE.sub,
+          fontWeight: "700",
+        }}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+function TrustBadge({ value }) {
+  const tone =
+    value >= 90 ? PALETTE.ok : value >= 80 ? PALETTE.mid : PALETTE.low;
+  const label =
+    value >= 90 ? "High" : value >= 80 ? "Mid" : "Basic";
+
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: tone,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+      }}
+    >
+      <Text
+        style={{
+          color: "#fff",
+          fontWeight: "700",
+          fontSize: 11,
+        }}
+      >
+        신뢰 {value} · {label}
+      </Text>
+    </View>
+  );
+}
+
+function CommunityBadge({ verified }) {
+  return (
+    <View
+      style={{
+        backgroundColor: verified ? PALETTE.ok : PALETTE.mid,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 999,
+      }}
+    >
+      <Text
+        style={{
+          color: "#fff",
+          fontWeight: "800",
+          fontSize: 11,
+        }}
+      >
+        {verified ? "필터 감지 없음" : "검증 대기"}
+      </Text>
+    </View>
+  );
+}
+
+/* ===== 이미지 로딩 플레이스홀더 ===== */
+
+function Img({ uri, style, radius = 10 }) {
+  const [ok, setOk] = useState(false);
+  const opacity = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    if (!ok) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(opacity, {
+            toValue: 0.9,
+            duration: 700,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0.4,
+            duration: 700,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+  }, [ok, opacity]);
+
+  return (
+    <View
+      style={[
+        {
+          borderRadius: radius,
+          overflow: "hidden",
+          backgroundColor: "#EDF1F7",
+        },
+        style,
+      ]}
+    >
+      {!ok && (
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            opacity,
+            backgroundColor: "#E1E7F5",
+          }}
+        />
+      )}
+      <Image
+        source={{ uri }}
+        style={[{ width: "100%", height: "100%" }, style]}
+        onLoad={() => setOk(true)}
+      />
+    </View>
+  );
+}
+
+/* ===== Before / After 슬라이더 ===== */
+
+function BeforeAfterSlider({ before, after, height = 260, radius = 18 }) {
+  const screenW = SCREEN_W - 24;
+  const [x, setX] = useState(screenW * 0.5);
+  const startX = useRef(x);
+
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => {
+        startX.current = x;
+      },
+      onPanResponderMove: (_, g) => {
+        const nx = Math.max(0, Math.min(screenW, startX.current + g.dx));
+        setX(nx);
+      },
+    })
+  ).current;
+
+  return (
+    <View
+      style={{
+        width: screenW,
+        height,
+        borderRadius: radius,
+        overflow: "hidden",
+        alignSelf: "center",
+        backgroundColor: "#000",
+      }}
+    >
+      <Image
+        source={{ uri: before }}
+        style={{
+          position: "absolute",
+          width: screenW,
+          height,
+          resizeMode: "cover",
+        }}
+      />
+      <View
+        style={{
+          position: "absolute",
+          width: x,
+          height,
+          overflow: "hidden",
+        }}
+      >
+        <Image
+          source={{ uri: after }}
+          style={{ width: screenW, height, resizeMode: "cover" }}
+        />
+      </View>
+
+      <View
+        {...pan.panHandlers}
+        style={{
+          position: "absolute",
+          left: x - 16,
+          top: 0,
+          width: 32,
+          height,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            width: 2,
+            height,
+            backgroundColor: "rgba(255,255,255,0.9)",
+          }}
+        />
+        <View
+          style={{
+            position: "absolute",
+            top: height / 2 - 18,
+            width: 40,
+            height: 40,
+            borderRadius: 999,
+            backgroundColor: "rgba(0,0,0,0.4)",
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.7)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <Text style={{ color: "#fff", fontWeight: "900" }}>⇆</Text>
+        </View>
+      </View>
+
+      <View
+        style={{
+          position: "absolute",
+          top: 8,
+          left: 8,
+          backgroundColor: "rgba(0,0,0,0.45)",
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 6,
+        }}
+      >
+        <Text style={{ color: "#fff", fontSize: 12 }}>Before</Text>
+      </View>
+      <View
+        style={{
+          position: "absolute",
+          top: 8,
+          right: 8,
+          backgroundColor: "rgba(0,0,0,0.45)",
+          paddingHorizontal: 8,
+          paddingVertical: 4,
+          borderRadius: 6,
+        }}
+      >
+        <Text style={{ color: "#fff", fontSize: 12 }}>After</Text>
+      </View>
+    </View>
+  );
+}
+
+/* ===== 헤더 / 내비 ===== */
+
+function Header({ tab, setTab }) {
+  return (
+    <View
+      style={{
+        paddingHorizontal: 12,
+        paddingTop: 10,
+        paddingBottom: 10,
+        backgroundColor: "rgba(247,248,250,0.96)",
+        borderBottomWidth: 1,
+        borderColor: PALETTE.line,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 10,
+        }}
+      >
+        <Text
+          style={{
+            color: PALETTE.text,
+            fontWeight: "900",
+            fontSize: 22,
+          }}
+        >
+          VISUMOF
+        </Text>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: PALETTE.brandSoft,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+            }}
+          >
+            <Text
+              style={{ color: "#1C2A3E", fontSize: 11, fontWeight: "700" }}
+            >
+              K-Beauty
+            </Text>
+          </View>
+          <View
+            style={{
+              backgroundColor: PALETTE.chip,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+            }}
+          >
+            <Text
+              style={{ color: PALETTE.sub, fontSize: 11 }}
+            >
+              “전후사진이 곧 언어다”
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      {/* 상단 탭: 가로 스크롤 한 줄 배치 → 더 이상 아래로 안 삐져나옴 */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ paddingVertical: 2 }}
+      >
+        <View style={{ flexDirection: "row" }}>
+          {TABS.map((t) => {
+            const active = tab === t;
+            return (
+              <TouchableOpacity
+                key={t}
+                onPress={() => setTab(t)}
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 8,
+                  borderRadius: 999,
+                  marginRight: 8,
+                  backgroundColor: active
+                    ? PALETTE.brand
+                    : "transparent",
+                  borderWidth: active ? 0 : 1,
+                  borderColor: PALETTE.line,
+                }}
+              >
+                <Text
+                  style={{
+                    color: active ? "#0A1020" : PALETTE.text,
+                    fontWeight: "800",
+                    fontSize: 13,
+                  }}
+                >
+                  {t}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function NavBar({ tab, setTab }) {
+  const icons = {
+    피드: "🏠",
+    커뮤니티: "👥",
+    업로드: "📤",
+    비교: "🪞",
+    파트너: "🏷️",
+    가이드: "📘",
+  };
+
+  return (
+    <View
+      style={{
+        paddingHorizontal: 12,
+        paddingBottom: 10,
+        paddingTop: 6,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: "#FFFFFF",
+          borderRadius: 18,
+          borderWidth: 1,
+          borderColor: PALETTE.line,
+          flexDirection: "row",
+          justifyContent: "space-around",
+          paddingVertical: 8,
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowRadius: 6,
+          shadowOffset: { width: 0, height: 2 },
+          elevation: 2,
+        }}
+      >
+        {TABS.map((t) => {
+          const active = tab === t;
+          return (
+            <TouchableOpacity
+              key={t}
+              onPress={() => setTab(t)}
+              style={{
+                paddingHorizontal: 10,
+                paddingVertical: 6,
+                borderRadius: 999,
+                backgroundColor: active
+                  ? PALETTE.brandMint
+                  : "transparent",
+              }}
+            >
+              <Text
+                style={{
+                  color: active ? "#0A1020" : PALETTE.text,
+                  fontWeight: "800",
+                  fontSize: 13,
+                }}
+              >
+                {icons[t]} {t}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+/* ===== 피드 (업체) ===== */
+
+function FeedItem({
+  item,
+  onCompare,
+  showAfter,
+  onToggle,
+}) {
+  const accent = getCategoryBorderColor(item.category);
+
+  return (
+    <Card style={{ marginBottom: 14 }} accent={accent}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          marginBottom: 10,
+        }}
+      >
+        <View
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: PALETTE.chip,
+            justifyContent: "center",
+            alignItems: "center",
+            marginRight: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "700",
+            }}
+          >
+            {item.user[0]}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "700",
+            }}
+          >
+            {item.user}
+          </Text>
+          <Text
+            style={{
+              color: PALETTE.sub,
+              fontSize: 12,
+            }}
+          >
+            {item.category} · {item.location}
+          </Text>
+        </View>
+        <TrustBadge value={item.trust} />
+      </View>
+
+      <Img
+        uri={showAfter ? item.after : item.before}
+        style={{
+          width: SCREEN_W - 48,
+          height: 200,
+          borderRadius: 14,
+        }}
+        radius={14}
+      />
+
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          marginTop: 10,
+        }}
+      >
+        {item.tags.map((t) => (
+          <View
+            key={t}
+            style={{
+              backgroundColor: PALETTE.chip,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              marginRight: 8,
+              marginBottom: 8,
+            }}
+          >
+            <Text
+              style={{ color: PALETTE.sub, fontSize: 12 }}
+            >
+              {t}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          marginTop: 10,
+          alignItems: "center",
+        }}
+      >
+        <TouchableOpacity
+          onPress={() => onToggle(item.id)}
+          style={{
+            backgroundColor: PALETTE.chip,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderRadius: 10,
+            marginRight: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "800",
+            }}
+          >
+            {showAfter ? "Before 보기" : "After 보기"}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => onCompare(item)}
+          style={{
+            backgroundColor: PALETTE.brand,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderRadius: 10,
+            marginRight: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: "#0A1020",
+              fontWeight: "800",
+            }}
+          >
+            슬라이더로 비교
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{
+            backgroundColor: PALETTE.brandMint,
+            paddingHorizontal: 12,
+            paddingVertical: 8,
+            borderRadius: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: "#0A1020",
+              fontWeight: "800",
+            }}
+          >
+            저장
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Card>
+  );
+}
+
+function FeedTab({
+  onCompare,
+  cat,
+  setCat,
+  q,
+  setQ,
+  sort,
+  setSort,
+  itemToggles,
+  setItemToggles,
+}) {
+  const filtered = useMemo(() => {
+    let arr = MOCK_FEED.filter((f) =>
+      cat === "전체" ? true : f.category === cat
+    );
+
+    if (q) {
+      const qq = q.toLowerCase();
+      arr = arr.filter((f) =>
+        (
+          f.user +
+          f.category +
+          f.partner +
+          f.tags.join(" ")
+        )
+          .toLowerCase()
+          .includes(qq)
+      );
+    }
+
+    if (sort === "신뢰순") {
+      arr = arr.slice().sort((a, b) => b.trust - a.trust);
+    }
+    if (sort === "최신순") {
+      arr = arr.slice().sort((a, b) => b.days - a.days);
+    }
+
+    return arr;
+  }, [cat, q, sort]);
+
+  const toggle = (id) => {
+    setItemToggles({
+      ...itemToggles,
+      [id]: !itemToggles[id],
+    });
+  };
+
+  return (
+    <ScrollView
+      style={{ padding: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionTitle
+        right={
+          <View style={{ flexDirection: "row" }}>
+            {["신뢰순", "최신순"].map((s) => {
+              const active = sort === s;
+              return (
+                <TouchableOpacity
+                  key={s}
+                  onPress={() => setSort(s)}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    backgroundColor: active
+                      ? PALETTE.brand
+                      : "transparent",
+                    borderWidth: 1,
+                    borderColor: active
+                      ? "transparent"
+                      : PALETTE.line,
+                    marginLeft: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: active
+                        ? "#0A1020"
+                        : PALETTE.sub,
+                      fontWeight: "800",
+                      fontSize: 11,
+                    }}
+                  >
+                    {s}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        }
+      >
+        업체 전후
+      </SectionTitle>
+
+      {/* 검색 */}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          backgroundColor: PALETTE.card,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: PALETTE.line,
+          marginBottom: 12,
+        }}
+      >
+        <Text
+          style={{
+            color: PALETTE.sub,
+            paddingLeft: 12,
+            paddingRight: 6,
+          }}
+        >
+          🔎
+        </Text>
+        <TextInput
+          value={q}
+          onChangeText={setQ}
+          placeholder="시술/샵/해시태그 검색"
+          placeholderTextColor="#ADB4C5"
+          style={{
+            flex: 1,
+            color: PALETTE.text,
+            paddingVertical: 10,
+            paddingRight: 12,
+          }}
+        />
+      </View>
+
+      {/* 카테고리 필터 */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={{ marginBottom: 12 }}
+      >
+        <View style={{ flexDirection: "row" }}>
+          {CATS.map((c) => (
+            <Chip
+              key={c}
+              label={c}
+              active={cat === c}
+              onPress={() => setCat(c)}
+            />
+          ))}
+        </View>
+      </ScrollView>
+
+      {/* 리스트 */}
+      {filtered.map((item) => (
+        <FeedItem
+          key={item.id}
+          item={item}
+          onCompare={onCompare}
+          showAfter={!!itemToggles[item.id]}
+          onToggle={toggle}
+        />
+      ))}
+      {filtered.length === 0 && (
+        <Card>
+          <Text style={{ color: PALETTE.sub }}>
+            조건에 맞는 전후가 없어요. 필터를 바꿔보자!
+          </Text>
+        </Card>
+      )}
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+/* ===== 커뮤니티 ===== */
+
+function CommunityItem({
+  item,
+  onCompare,
+  onLike,
+  onReport,
+}) {
+  return (
+    <Card style={{ marginBottom: 14 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <View
+          style={{
+            width: 34,
+            height: 34,
+            borderRadius: 17,
+            backgroundColor: PALETTE.chip,
+            justifyContent: "center",
+            alignItems: "center",
+            marginRight: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "800",
+            }}
+          >
+            {item.anonymous ? "?" : item.user[0]}
+          </Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "800",
+            }}
+          >
+            {item.anonymous ? "익명" : item.user}
+          </Text>
+          <Text
+            style={{
+              color: PALETTE.sub,
+              fontSize: 12,
+            }}
+          >
+            {item.visibility === "public"
+              ? "전체공개"
+              : item.visibility}
+          </Text>
+        </View>
+        <CommunityBadge verified={item.verified} />
+      </View>
+
+      {item.desc ? (
+        <Text
+          style={{
+            color: PALETTE.text,
+            marginBottom: 8,
+          }}
+        >
+          {item.desc}
+        </Text>
+      ) : null}
+
+      <View style={{ flexDirection: "row" }}>
+        <Img
+          uri={item.before}
+          style={{
+            width: (SCREEN_W - 48) / 2,
+            height: 160,
+            borderRadius: 10,
+            marginRight: 8,
+          }}
+        />
+        <Img
+          uri={item.after}
+          style={{
+            width: (SCREEN_W - 48) / 2,
+            height: 160,
+            borderRadius: 10,
+          }}
+        />
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          marginTop: 8,
+        }}
+      >
+        {item.tags.map((t) => (
+          <View
+            key={t}
+            style={{
+              backgroundColor: PALETTE.chip,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 999,
+              marginRight: 8,
+              marginBottom: 8,
+            }}
+          >
+            <Text
+              style={{ color: PALETTE.sub, fontSize: 12 }}
+            >
+              {t}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          marginTop: 8,
+          alignItems: "center",
+        }}
+      >
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+          }}
+        >
+          <TouchableOpacity
+            onPress={onLike}
+            style={{ marginRight: 14 }}
+          >
+            <Text
+              style={{ color: PALETTE.sub, fontSize: 13 }}
+            >
+              ❤️ {item.likes}
+            </Text>
+          </TouchableOpacity>
+          <Text
+            style={{ color: PALETTE.sub, fontSize: 13 }}
+          >
+            💬 {item.comments}
+          </Text>
+        </View>
+
+        <View style={{ flexDirection: "row" }}>
+          <TouchableOpacity
+            onPress={() => onCompare(item)}
+            style={{
+              backgroundColor: PALETTE.brand,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+              marginRight: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: "#0A1020",
+                fontWeight: "800",
+                fontSize: 12,
+              }}
+            >
+              슬라이더로 비교
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onReport}
+            style={{
+              backgroundColor: PALETTE.danger,
+              paddingHorizontal: 10,
+              paddingVertical: 6,
+              borderRadius: 8,
+            }}
+          >
+            <Text
+              style={{
+                color: "#fff",
+                fontWeight: "800",
+                fontSize: 12,
+              }}
+            >
+              신고
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Card>
+  );
+}
+
+function CommunityTab({
+  userFeed,
+  setUserFeed,
+  onCompare,
+  onToast,
+}) {
+  return (
+    <ScrollView
+      style={{ padding: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionTitle>일반 전후 커뮤니티</SectionTitle>
+
+      {userFeed.map((item, idx) => (
+        <CommunityItem
+          key={item.id}
+          item={item}
+          onCompare={onCompare}
+          onLike={() => {
+            const arr = [...userFeed];
+            arr[idx] = {
+              ...arr[idx],
+              likes: arr[idx].likes + 1,
+            };
+            setUserFeed(arr);
+          }}
+          onReport={() =>
+            onToast(
+              "신고가 접수되었어. 검토 후 조치할게."
+            )
+          }
+        />
+      ))}
+
+      {userFeed.length === 0 && (
+        <Card>
+          <Text style={{ color: PALETTE.sub }}>
+            아직 게시물이 없어. 네 전후를 첫 번째로 올려봐!
+          </Text>
+        </Card>
+      )}
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+/* ===== 비교 탭 ===== */
+
+function CompareTab({ payload }) {
+  const current = payload || MOCK_FEED[0];
+
+  return (
+    <ScrollView
+      style={{ padding: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionTitle>슬라이더 비교</SectionTitle>
+
+      <BeforeAfterSlider
+        before={current.before}
+        after={current.after}
+      />
+
+      <View style={{ height: 12 }} />
+
+      <Card>
+        {"partner" in current ? (
+          <>
+            <Text
+              style={{
+                color: PALETTE.text,
+                fontWeight: "800",
+                marginBottom: 6,
+              }}
+            >
+              {current.user} · {current.category}
+            </Text>
+            <Text
+              style={{
+                color: PALETTE.sub,
+                marginBottom: 6,
+              }}
+            >
+              {current.partner} · {current.location}
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text
+              style={{
+                color: PALETTE.text,
+                fontWeight: "800",
+                marginBottom: 6,
+              }}
+            >
+              {current.anonymous ? "익명" : current.user} ·
+              Personal
+            </Text>
+            <Text
+              style={{
+                color: PALETTE.sub,
+                marginBottom: 6,
+              }}
+            >
+              일반 전후 · {current.visibility}
+            </Text>
+            {current.desc ? (
+              <Text style={{ color: PALETTE.text }}>
+                {current.desc}
+              </Text>
+            ) : null}
+          </>
+        )}
+      </Card>
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+/* ===== 업로드 탭 ===== */
+
+function UploadGuideCard() {
+  const GUIDE = [
+    "정면·45도·측면 3컷(가능하면 삼각대 사용)",
+    "밝은 자연광 / 동일 조명 유지",
+    "머리·어깨·카메라 거리 동일",
+    "필터·보정 OFF (원본 권장)",
+    "배경 단색 / 그림자 최소화",
+  ];
+
+  return (
+    <Card>
+      <SectionTitle>촬영 가이드</SectionTitle>
+
+      {GUIDE.map((t, i) => (
+        <View
+          key={i}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
+          <View
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 4,
+              backgroundColor: PALETTE.brand,
+              marginRight: 10,
+            }}
+          />
+          <Text style={{ color: PALETTE.text }}>{t}</Text>
+        </View>
+      ))}
+
+      <View
+        style={{
+          marginTop: 10,
+          backgroundColor: PALETTE.brandMintSoft,
+          padding: 12,
+          borderRadius: 12,
+        }}
+      >
+        <Text
+          style={{ color: PALETTE.sub, fontSize: 12 }}
+        >
+          * 데모는 이미지 URL 붙여넣기 방식. 정식 배포 시
+          갤러리/카메라 연동 예정.
+        </Text>
+      </View>
+    </Card>
+  );
+}
+
+function UploadTab({
+  onSubmit,
+  openTerms,
+  lastModeRef,
+}) {
+  const [mode, setMode] = useState(
+    lastModeRef.current || "user"
+  ); // "user" | "partner"
+
+  useEffect(() => {
+    lastModeRef.current = mode;
+  }, [mode, lastModeRef]);
+
+  const [title, setTitle] = useState("");
+  const [beforeUrl, setBeforeUrl] = useState("");
+  const [afterUrl, setAfterUrl] = useState("");
+  const [tags, setTags] = useState("");
+
+  const [emotion, setEmotion] = useState("");
+  const [anonymous, setAnonymous] = useState(false);
+  const [visibility, setVisibility] =
+    useState("public");
+
+  const [partnerName, setPartnerName] =
+    useState("");
+  const [partnerCategory, setPartnerCategory] =
+    useState("시술(클리닉)");
+
+  const [consent, setConsent] = useState(false);
+
+  const canSubmit =
+    title &&
+    beforeUrl &&
+    afterUrl &&
+    consent &&
+    (mode === "user"
+      ? true
+      : partnerName && partnerCategory);
+
+  return (
+    <ScrollView
+      style={{ padding: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionTitle
+        right={
+          <View style={{ flexDirection: "row" }}>
+            {["user", "partner"].map((m) => {
+              const active = mode === m;
+              return (
+                <TouchableOpacity
+                  key={m}
+                  onPress={() => setMode(m)}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    backgroundColor: active
+                      ? PALETTE.brand
+                      : "transparent",
+                    borderWidth: 1,
+                    borderColor: active
+                      ? "transparent"
+                      : PALETTE.line,
+                    marginLeft: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: active
+                        ? "#0A1020"
+                        : PALETTE.sub,
+                      fontWeight: "800",
+                      fontSize: 12,
+                    }}
+                  >
+                    {m === "user" ? "일반" : "업체"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        }
+      >
+        내 전후 업로드
+      </SectionTitle>
+
+      <Card>
+        <Text
+          style={{
+            color: PALETTE.sub,
+            marginBottom: 6,
+          }}
+        >
+          제목
+        </Text>
+        <TextInput
+          value={title}
+          onChangeText={setTitle}
+          placeholder={
+            mode === "user"
+              ? "예) 3주차 홈트 변화!"
+              : "예) 여드름 스킨케어 프로그램"
+          }
+          placeholderTextColor="#A3ACBF"
+          style={{
+            backgroundColor: "#F3F5FA",
+            color: PALETTE.text,
+            borderRadius: 10,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 10,
+          }}
+        />
+
+        <Text
+          style={{
+            color: PALETTE.sub,
+            marginBottom: 6,
+          }}
+        >
+          Before 이미지 URL
+        </Text>
+        <TextInput
+          value={beforeUrl}
+          onChangeText={setBeforeUrl}
+          placeholder="https:// ... before.jpg"
+          placeholderTextColor="#A3ACBF"
+          style={{
+            backgroundColor: "#F3F5FA",
+            color: PALETTE.text,
+            borderRadius: 10,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 10,
+          }}
+        />
+
+        <Text
+          style={{
+            color: PALETTE.sub,
+            marginBottom: 6,
+          }}
+        >
+          After 이미지 URL
+        </Text>
+        <TextInput
+          value={afterUrl}
+          onChangeText={setAfterUrl}
+          placeholder="https:// ... after.jpg"
+          placeholderTextColor="#A3ACBF"
+          style={{
+            backgroundColor: "#F3F5FA",
+            color: PALETTE.text,
+            borderRadius: 10,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 10,
+          }}
+        />
+
+        <Text
+          style={{
+            color: PALETTE.sub,
+            marginBottom: 6,
+          }}
+        >
+          해시태그(공백 구분)
+        </Text>
+        <TextInput
+          value={tags}
+          onChangeText={setTags}
+          placeholder="#홈트 #다이어트 #피부"
+          placeholderTextColor="#A3ACBF"
+          style={{
+            backgroundColor: "#F3F5FA",
+            color: PALETTE.text,
+            borderRadius: 10,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            marginBottom: 10,
+          }}
+        />
+
+        {mode === "user" ? (
+          <>
+            <Text
+              style={{
+                color: PALETTE.sub,
+                marginBottom: 6,
+              }}
+            >
+              감정 로그(선택)
+            </Text>
+            <TextInput
+              value={emotion}
+              onChangeText={setEmotion}
+              placeholder="예) 스스로도 놀랐어요! 자신감이 생겼어요 😊"
+              placeholderTextColor="#A3ACBF"
+              style={{
+                backgroundColor: "#F3F5FA",
+                color: PALETTE.text,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 10,
+              }}
+            />
+
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                marginBottom: 8,
+              }}
+            >
+              <Switch
+                value={anonymous}
+                onValueChange={setAnonymous}
+              />
+              <Text
+                style={{
+                  color: PALETTE.text,
+                  marginLeft: 8,
+                }}
+              >
+                익명으로 올리기
+              </Text>
+            </View>
+
+            <View
+              style={{
+                flexDirection: "row",
+                marginBottom: 10,
+              }}
+            >
+              {[
+                { k: "public", n: "전체공개" },
+                { k: "followers", n: "팔로워" },
+                { k: "private", n: "비공개" },
+              ].map((v) => {
+                const active = visibility === v.k;
+                return (
+                  <TouchableOpacity
+                    key={v.k}
+                    onPress={() =>
+                      setVisibility(v.k)
+                    }
+                    style={{
+                      paddingHorizontal: 10,
+                      paddingVertical: 6,
+                      borderRadius: 999,
+                      backgroundColor: active
+                        ? PALETTE.brandMint
+                        : PALETTE.chip,
+                      marginRight: 8,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: active
+                          ? "#0A1020"
+                          : PALETTE.text,
+                        fontWeight: "800",
+                        fontSize: 12,
+                      }}
+                    >
+                      {v.n}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        ) : (
+          <>
+            <Text
+              style={{
+                color: PALETTE.sub,
+                marginBottom: 6,
+              }}
+            >
+              업체명
+            </Text>
+            <TextInput
+              value={partnerName}
+              onChangeText={setPartnerName}
+              placeholder="예) VISUMOF Clinic"
+              placeholderTextColor="#A3ACBF"
+              style={{
+                backgroundColor: "#F3F5FA",
+                color: PALETTE.text,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 10,
+              }}
+            />
+
+            <Text
+              style={{
+                color: PALETTE.sub,
+                marginBottom: 6,
+              }}
+            >
+              업종
+            </Text>
+            <TextInput
+              value={partnerCategory}
+              onChangeText={setPartnerCategory}
+              placeholder="예) 시술(클리닉) / 스킨케어 / 헤어 / PT / 반영구"
+              placeholderTextColor="#A3ACBF"
+              style={{
+                backgroundColor: "#F3F5FA",
+                color: PALETTE.text,
+                borderRadius: 10,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: 10,
+              }}
+            />
+          </>
+        )}
+
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
+          <Switch
+            value={consent}
+            onValueChange={setConsent}
+          />
+          <Text
+            style={{
+              color: PALETTE.text,
+              marginLeft: 8,
+            }}
+          >
+            전후사진 사용에 동의합니다(동의서 보관)
+          </Text>
+          <TouchableOpacity
+            onPress={openTerms}
+            style={{ marginLeft: 8 }}
+          >
+            <Text style={{ color: PALETTE.brand }}>
+              약관
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          disabled={!canSubmit}
+          onPress={() =>
+            onSubmit({
+              mode,
+              title,
+              before: beforeUrl,
+              after: afterUrl,
+              tags: tags
+                .split(" ")
+                .filter(Boolean),
+              emotion,
+              anonymous,
+              visibility,
+              partnerName,
+              partnerCategory,
+            })
+          }
+          style={{
+            backgroundColor: canSubmit
+              ? PALETTE.brandMint
+              : PALETTE.chip,
+            paddingVertical: 12,
+            borderRadius: 12,
+          }}
+        >
+          <Text
+            style={{
+              color: "#0A1020",
+              fontWeight: "800",
+              textAlign: "center",
+            }}
+          >
+            {canSubmit
+              ? mode === "user"
+                ? "일반 전후 업로드"
+                : "업체 전후 업로드"
+              : "필수 정보 입력/동의"}
+          </Text>
+        </TouchableOpacity>
+      </Card>
+
+      <View style={{ height: 12 }} />
+      <UploadGuideCard />
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+/* ===== 파트너 / 가이드 ===== */
+
+function PartnerCard({ p }) {
+  const accent = getCategoryBorderColor(p.field);
+
+  return (
+    <Card
+      style={{ marginBottom: 12 }}
+      accent={accent}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <View>
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "800",
+              fontSize: 16,
+            }}
+          >
+            {p.name}
+          </Text>
+          <Text style={{ color: PALETTE.sub }}>
+            {p.field} · {p.addr}
+          </Text>
+        </View>
+        <View
+          style={{
+            backgroundColor: PALETTE.brandMint,
+            paddingHorizontal: 10,
+            paddingVertical: 6,
+            borderRadius: 999,
+          }}
+        >
+          <Text
+            style={{
+              color: "#0A1020",
+              fontWeight: "800",
+              fontSize: 12,
+            }}
+          >
+            {p.badge}
+          </Text>
+        </View>
+      </View>
+
+      <View
+        style={{
+          flexDirection: "row",
+          marginTop: 10,
+        }}
+      >
+        <TouchableOpacity
+          style={{
+            backgroundColor: PALETTE.chip,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            borderRadius: 10,
+            marginRight: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: PALETTE.text,
+              fontWeight: "800",
+            }}
+          >
+            프로필
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={{
+            backgroundColor: PALETTE.brand,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
+            borderRadius: 10,
+          }}
+        >
+          <Text
+            style={{
+              color: "#0A1020",
+              fontWeight: "800",
+            }}
+          >
+            문의/예약
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Card>
+  );
+}
+
+function PartnerTab() {
+  return (
+    <ScrollView
+      style={{ padding: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionTitle>파트너(입점사)</SectionTitle>
+
+      {PARTNERS.map((p) => (
+        <PartnerCard key={p.id} p={p} />
+      ))}
+
+      <Card>
+        <Text
+          style={{
+            color: PALETTE.sub,
+            fontSize: 12,
+          }}
+        >
+          * 파트너는 관리자 승인 후 Verified/Pro 배지를
+          받습니다. 예약/결제, 리드, 통계 대시보드는
+          차기 스프린트에서 연결.
+        </Text>
+      </Card>
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+function GuideTab() {
+  return (
+    <ScrollView
+      style={{ padding: 12 }}
+      showsVerticalScrollIndicator={false}
+    >
+      <SectionTitle>촬영 가이드 & 표준화</SectionTitle>
+      <UploadGuideCard />
+
+      <View style={{ height: 12 }} />
+
+      <Card>
+        <Text
+          style={{
+            color: PALETTE.text,
+            fontWeight: "800",
+            marginBottom: 8,
+          }}
+        >
+          전후 표준 메타데이터(초안)
+        </Text>
+        <Text
+          style={{
+            color: PALETTE.sub,
+            lineHeight: 20,
+          }}
+        >
+          · 촬영일자/장소/조명·렌즈 고정 · 구도/거리/각도
+          동일 · 원본 유지 · 동일 인물 확인{"\n"}· (의료)
+          로그인 접근 권장 · 동의서 보관 ·
+          삭제/다운로드 권리 보장
+        </Text>
+      </Card>
+
+      <View style={{ height: 80 }} />
+    </ScrollView>
+  );
+}
+
+/* ===== 토스트 ===== */
+
+function Toast({ text, clear }) {
+  const opacity = useRef(new Animated.Value(0))
+    .current;
+
+  useEffect(() => {
+    if (!text) return;
+
+    Animated.sequence([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.delay(1200),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => clear());
+  }, [text, opacity, clear]);
+
+  if (!text) return null;
+
+  return (
+    <Animated.View
+      style={{
+        position: "absolute",
+        bottom: 120,
+        left: 20,
+        right: 20,
+        opacity,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: "rgba(0,0,0,0.8)",
+          padding: 12,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: "#2a2f3a",
+        }}
+      >
+        <Text
+          style={{
+            color: "#fff",
+            textAlign: "center",
+          }}
+        >
+          {text}
+        </Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+/* ===== 메인 App ===== */
+
+export default function App() {
+  const [tab, setTab] = useState("피드");
+  const [comparePayload, setComparePayload] =
+    useState(null);
+
+  // 시술(클리닉) 기본 선택
+  const [cat, setCat] = useState("시술(클리닉)");
+  const [q, setQ] = useState("");
+  const [sort, setSort] = useState("신뢰순");
+  const [userFeed, setUserFeed] = useState(
+    USER_FEED_SAMPLE
+  );
+  const [showTerms, setShowTerms] = useState(false);
+  const [itemToggles, setItemToggles] = useState({});
+  const lastModeRef = useRef("user");
+
+  const [toast, setToast] = useState("");
+
+  const fade = useRef(new Animated.Value(1)).current;
+
+  const changeTab = (next) => {
+    Animated.sequence([
+      Animated.timing(fade, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fade, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setTab(next);
+  };
+
+  const onCompare = (item) => {
+    setComparePayload(item);
+    changeTab("비교");
+  };
+
+  const onSubmitUpload = (payload) => {
+    if (payload.mode === "user") {
+      const newPost = {
+        id: "u-" + Date.now(),
+        user: "You",
+        desc: payload.emotion || "",
+        tags:
+          payload.tags && payload.tags.length
+            ? payload.tags
+            : ["#user", "#upload"],
+        before: payload.before,
+        after: payload.after,
+        likes: 0,
+        comments: 0,
+        verified: false,
+        anonymous: payload.anonymous,
+        visibility: payload.visibility,
+      };
+      setUserFeed([newPost, ...userFeed]);
+      setToast("업로드 완료! 커뮤니티에 반영했어.");
+      changeTab("커뮤니티");
+    } else {
+      const demoItem = {
+        id: "case-" + Date.now(),
+        user: payload.partnerName || "Partner",
+        category:
+          payload.partnerCategory || "시술(클리닉)",
+        tags:
+          payload.tags && payload.tags.length
+            ? payload.tags
+            : ["#partner", "#upload"],
+        before: payload.before,
+        after: payload.after,
+        trust: 85,
+        partner: payload.partnerName || "입점사",
+        location: "—",
+        days: 0,
+      };
+      setComparePayload(demoItem);
+      setToast("업체 전후 미리보기로 이동!");
+      changeTab("비교");
+    }
+  };
+
+  return (
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: PALETTE.bg }}
+    >
+      <StatusBar barStyle="dark-content" />
+      <Header tab={tab} setTab={changeTab} />
+
+      <Animated.View
+        style={{ flex: 1, opacity: fade }}
+      >
+        {tab === "피드" && (
+          <FeedTab
+            onCompare={onCompare}
+            cat={cat}
+            setCat={setCat}
+            q={q}
+            setQ={setQ}
+            sort={sort}
+            setSort={setSort}
+            itemToggles={itemToggles}
+            setItemToggles={setItemToggles}
+          />
+        )}
+        {tab === "커뮤니티" && (
+          <CommunityTab
+            userFeed={userFeed}
+            setUserFeed={setUserFeed}
+            onCompare={onCompare}
+            onToast={setToast}
+          />
+        )}
+        {tab === "업로드" && (
+          <UploadTab
+            onSubmit={onSubmitUpload}
+            openTerms={() => setShowTerms(true)}
+            lastModeRef={lastModeRef}
+          />
+        )}
+        {tab === "비교" && (
+          <CompareTab payload={comparePayload} />
+        )}
+        {tab === "파트너" && <PartnerTab />}
+        {tab === "가이드" && <GuideTab />}
+      </Animated.View>
+
+      <NavBar tab={tab} setTab={changeTab} />
+
+      {/* 약관 모달 */}
+      <Modal
+        visible={showTerms}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowTerms(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.4)",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: PALETTE.card,
+              borderRadius: 16,
+              borderWidth: 1,
+              borderColor: PALETTE.line,
+              padding: 16,
+            }}
+          >
+            <Text
+              style={{
+                color: PALETTE.text,
+                fontWeight: "900",
+                fontSize: 16,
+                marginBottom: 8,
+              }}
+            >
+              전후사진 업로드 약관(요약)
+            </Text>
+            <Text
+              style={{
+                color: PALETTE.sub,
+                lineHeight: 20,
+              }}
+            >
+              · 보정·필터 없는 원본 업로드를
+              권장합니다(자유 업로드 허용){"\n"}· 업로드
+              동의 및 철회 가능, 삭제/다운로드 권리
+              보장{"\n"}· (의료) 민감정보 해당 시
+              로그인/권한 관리 필요{"\n"}·
+              불법/타인정보 업로드 금지, 위반 시 삭제
+            </Text>
+            <TouchableOpacity
+              onPress={() => setShowTerms(false)}
+              style={{
+                marginTop: 14,
+                backgroundColor: PALETTE.brand,
+                paddingVertical: 10,
+                borderRadius: 12,
+              }}
+            >
+              <Text
+                style={{
+                  color: "#0A1020",
+                  textAlign: "center",
+                  fontWeight: "800",
+                }}
+              >
+                확인
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Toast text={toast} clear={() => setToast("")} />
+    </SafeAreaView>
+  );
+}

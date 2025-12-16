@@ -1,0 +1,8 @@
+sb_publishable_zhjzgeDAxcImr4july-7Pw_2h2DQAc3
+이건 publishable key
+
+
+
+https://mljhxswtlahjqexlxlwh.supabase.co
+이건 url 
+이거기반으로 어디에 어떻게 뭘 하면 되는지 바로 알려줘 상세하게
