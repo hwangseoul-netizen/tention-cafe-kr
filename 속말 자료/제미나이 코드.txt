@@ -1,0 +1,434 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Text, View, StyleSheet, ScrollView, TouchableOpacity, Image, StatusBar, 
+  SafeAreaView, Dimensions, Modal, TextInput, Alert, FlatList, 
+  KeyboardAvoidingView, Platform, Animated, Easing, RefreshControl, Keyboard, TouchableWithoutFeedback 
+} from 'react-native';
+
+// --- 🤖 AI 봇 및 랜덤 방 제목 데이터 ---
+const RANDOM_TITLES = [
+  "⚡ 급벙! 지금 당장 홍대 오실 분?",
+  "⚡ 야식으로 치킨 vs 피자 투표 좀",
+  "⚡ 잠 안 와서 켜봤음 (노래 불러드림)",
+  "⚡ 전남친한테 부재중 와있는데.. 하",
+  "⚡ 비트코인 떡락 중... 한강물 따뜻하냐",
+  "⚡ 롤(LoL) 칼바람 나락 5인큐 구함",
+  "⚡ 밸런스 게임: 평생 두통 vs 평생 치통",
+  "⚡ 회사 때려치우고 싶을 때 들어오셈",
+  "⚡ 넷플릭스 영화 추천받습니다 (공포 X)",
+  "⚡ 그냥 아무 말이나 하는 방"
+];
+
+const BOT_SCRIPTS = {
+  FINANCE: ["이야... 차트 살벌하네", "구조대 언제 오나요?", "지금 사면 흑우인가요?", "존버는 승리한다..!", "한강뷰 가즈아"],
+  LOVE: ["그건 100% 그린라이트임", "헤어지세요 그게 답입니다", "크리스마스에 뭐하지..", "연락하지 마세요 제발", "설렌다.."],
+  DEFAULT: ["반갑습니다~", "목소리 좋으시네요", "방장님 노래 한 곡?", "여기 분위기 맛집이네", "ㅋㅋㅋㅋㅋㅋ"]
+};
+
+// --- 초기 방 데이터 ---
+const INITIAL_ROOMS = [
+  { id: 1, title: "📉 비트코인 -5%.. 비상대책위원회", tension: 9.9, speakers: 24, listeners: 1250, category: "FINANCE", host: "https://api.dicebear.com/7.x/avataaars/png?seed=Felix" },
+  { id: 2, title: "💔 전 애인 연락.. 받는다 vs 안받는다", tension: 5.8, speakers: 4, listeners: 33, category: "LOVE", host: "https://api.dicebear.com/7.x/avataaars/png?seed=Love" },
+  { id: 3, title: "🤬 직장 상사 뒷담화 (욕설가능)", tension: 8.8, speakers: 6, listeners: 42, category: "ANGRY", host: "https://api.dicebear.com/7.x/avataaars/png?seed=Angry" },
+  { id: 4, title: "👻 실시간 공포썰 (BGM 있음)", tension: 6.2, speakers: 2, listeners: 89, category: "HORROR", host: "https://api.dicebear.com/7.x/avataaars/png?seed=Ghost" },
+];
+
+const INITIAL_CHATS = [
+  { id: 1, user: 'System', text: '🔥 뜨거운 토론이 진행 중입니다!', isSystem: true },
+];
+
+export default function App() {
+  const [currentRoom, setCurrentRoom] = useState(null);
+  const [rooms, setRooms] = useState(INITIAL_ROOMS);
+  const [myProfile, setMyProfile] = useState({ name: "나그네", seed: "Me", points: 1000 });
+  
+  // 테마 로직
+  const getTheme = (score) => {
+    if (score >= 8.5) return { bg: '#2a0a0a', light: '#FF5252', badge: 'HOT', bubble: '#FF5252' };
+    if (score >= 6.0) return { bg: '#2a1a0a', light: '#FF9800', badge: 'ACTIVE', bubble: '#FF9800' };
+    if (score >= 3.5) return { bg: '#1a0a2a', light: '#E040FB', badge: 'TALK', bubble: '#E040FB' };
+    return { bg: '#0a112a', light: '#448AFF', badge: 'CALM', bubble: '#448AFF' };
+  };
+
+  const getTensionMessage = (score) => {
+    if (score < 3) return "🤫 소근소근.. 쉿! 조용히 말해요";
+    if (score < 6) return "☕ 적당한 텐션, 편안한 수다 타임";
+    if (score < 9) return "🗣️ 시끌벅적! 목소리 좀 높여볼까요?";
+    return "🔥 텐션 폭발! 고막 주의! 광란의 파티!";
+  };
+
+  // --- 컴포넌트: 납작 슬라이더 ---
+  const FlatTensionSlider = ({ tension, setTension, theme }) => {
+    const handleTouch = (e) => {
+      const { locationX } = e.nativeEvent;
+      const trackWidth = Dimensions.get('window').width - 40; 
+      let newScore = (locationX / trackWidth) * 10;
+      if (newScore < 0) newScore = 0; if (newScore > 10) newScore = 10;
+      setTension(parseFloat(newScore.toFixed(1)));
+    };
+    return (
+      <View style={[styles.flatBox, { borderColor: theme.light }]}>
+        <View style={styles.flatHeader}>
+          <Text style={[styles.flatLabel, { color: theme.light }]}>TENSION SETTING</Text>
+          <Text style={[styles.flatValue, { color: theme.light }]}>{tension}</Text>
+        </View>
+        <View style={styles.touchArea} onTouchStart={handleTouch} onTouchMove={handleTouch}>
+          <View style={styles.sliderTrack}>
+              <View style={[styles.sliderFill, { width: `${tension * 10}%`, backgroundColor: theme.light }]} />
+              <View style={[styles.sliderThumb, { left: `${tension * 10}%` }]} />
+          </View>
+        </View>
+        <Text style={styles.flatDesc}>{getTensionMessage(tension)}</Text>
+      </View>
+    );
+  };
+
+  // --- 컴포넌트: 파동 애니메이션 ---
+  const PulseAvatar = ({ uri, color }) => {
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+    const opacityAnim = useRef(new Animated.Value(0.5)).current;
+    useEffect(() => {
+      Animated.loop(
+        Animated.parallel([
+          Animated.timing(scaleAnim, { toValue: 1.6, duration: 1500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(opacityAnim, { toValue: 0, duration: 1500, easing: Easing.out(Easing.ease), useNativeDriver: true })
+        ])
+      ).start();
+    }, []);
+    return (
+      <View style={{ alignItems: 'center', justifyContent: 'center', width: 60, height: 60 }}>
+        <Animated.View style={{position: 'absolute', width: 40, height: 40, borderRadius: 20, backgroundColor: color, transform: [{ scale: scaleAnim }], opacity: opacityAnim}} />
+        <Image source={{ uri }} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: 'white', zIndex:1 }} />
+      </View>
+    );
+  };
+
+  // --- 화면 1: 로비 ---
+  const Lobby = () => {
+    const [myTension, setMyTension] = useState(5.0);
+    const theme = getTheme(myTension);
+    const [isCreateModal, setCreateModal] = useState(false);
+    const [isProfileModal, setProfileModal] = useState(false);
+    const [newTitle, setNewTitle] = useState('');
+    const [newCat, setNewCat] = useState('CHAT');
+    const [filterMode, setFilterMode] = useState('DEFAULT'); // 필터 상태 표시용
+
+    // ⚡ [핵심 기능] 번개 버튼: 랜덤 방 5개 즉시 생성
+    const generateRandomRooms = () => {
+      const newRandomRooms = Array.from({ length: 5 }).map((_, i) => {
+        const randomTitle = RANDOM_TITLES[Math.floor(Math.random() * RANDOM_TITLES.length)];
+        const randomTension = parseFloat((Math.random() * 10).toFixed(1));
+        return {
+          id: Date.now() + i,
+          title: randomTitle,
+          tension: randomTension,
+          speakers: Math.floor(Math.random() * 10),
+          listeners: Math.floor(Math.random() * 100),
+          category: "RANDOM",
+          host: `https://api.dicebear.com/7.x/avataaars/png?seed=${Math.random()}`
+        };
+      });
+      // 기존 목록 맨 위에 추가
+      setRooms(prev => [...newRandomRooms, ...prev]);
+      Alert.alert("⚡ 번개 소집 완료!", "새로운 랜덤 대화방 5개가 생성되었습니다.");
+    };
+
+    // 🔍 [핵심 기능] 필터: 취소 없이 3가지 옵션만
+    const handleFilter = () => {
+      Alert.alert(
+        "필터 설정",
+        "원하는 정렬 방식을 선택하세요",
+        [
+          { text: "🔄 초기화", onPress: () => { setRooms(INITIAL_ROOMS); setFilterMode('DEFAULT'); } },
+          { text: "👥 인원순", onPress: () => { 
+              const sorted = [...rooms].sort((a, b) => b.listeners - a.listeners); 
+              setRooms(sorted); 
+              setFilterMode('PEOPLE');
+            } 
+          },
+          { text: "🔥 텐션순", onPress: () => { 
+              const sorted = [...rooms].sort((a, b) => b.tension - a.tension); 
+              setRooms(sorted); 
+              setFilterMode('TENSION');
+            } 
+          },
+        ]
+      );
+    };
+
+    // ➕ [핵심 기능] 사용자 수동 방 만들기
+    const createRoom = () => {
+      if(!newTitle.trim()) return;
+      const newRoom = { id: Date.now(), title: newTitle, tension: 5.0, speakers: 1, listeners: 0, category: newCat, host: `https://api.dicebear.com/7.x/avataaars/png?seed=${myProfile.seed}` };
+      setRooms([newRoom, ...rooms]);
+      setCreateModal(false); setNewTitle('');
+      setCurrentRoom(newRoom);
+    };
+
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+        <StatusBar barStyle="light-content" />
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>SOK-MAL</Text>
+            <Text style={styles.headerSubtitle}>by TENtion</Text> 
+          </View>
+          <TouchableOpacity onPress={() => setProfileModal(true)} style={styles.pointsBadge}>
+            <Text style={{color:'#FFD700', fontWeight:'bold', marginRight:5, fontSize:12}}>💎 {myProfile.points}</Text>
+            <Image source={{ uri: `https://api.dicebear.com/7.x/avataaars/png?seed=${myProfile.seed}` }} style={{width:24, height:24, borderRadius:12}} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.contentPadding}>
+          <View style={{ marginBottom: 20 }}>
+            <FlatTensionSlider tension={myTension} setTension={setMyTension} theme={theme} />
+          </View>
+
+          {/* 리스트 헤더: 번개 버튼 & 필터 버튼 배치 */}
+          <View style={styles.listHeader}>
+             <Text style={styles.sectionTitle}>NOW LIVE ({rooms.length})</Text>
+             <View style={{flexDirection:'row', alignItems:'center'}}>
+               {/* ⚡ 필터 옆 번개 버튼 */}
+               <TouchableOpacity onPress={generateRandomRooms} style={{marginRight: 15, backgroundColor:'rgba(255,255,0,0.2)', padding:5, borderRadius:8}}>
+                 <Text style={{fontSize:16}}>⚡ 랜덤생성</Text>
+               </TouchableOpacity>
+               
+               {/* 🔍 필터 버튼 */}
+               <TouchableOpacity onPress={handleFilter}>
+                 <Text style={{color: filterMode==='DEFAULT'?'#aaa':'white', fontWeight:'bold'}}>
+                   {filterMode === 'TENSION' ? '🔥 텐션순' : filterMode === 'PEOPLE' ? '👥 인원순' : 'Filter ▾'}
+                 </Text>
+               </TouchableOpacity>
+             </View>
+          </View>
+
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{paddingBottom: 80}}>
+            {rooms.map((room) => {
+              const rTheme = getTheme(room.tension);
+              return (
+                <TouchableOpacity key={room.id} activeOpacity={0.9} style={[styles.card, { borderColor: rTheme.light }]} onPress={() => setCurrentRoom(room)}>
+                    <View style={styles.cardHeader}>
+                      <View style={[styles.badge, { borderColor: rTheme.light }]}><Text style={{color:rTheme.light, fontSize:9, fontWeight:'bold'}}>{room.category}</Text></View>
+                      <Text style={{color:rTheme.light, fontWeight:'900', fontSize:14}}>{room.tension}</Text>
+                    </View>
+                    <Text style={styles.roomTitle} numberOfLines={2}>{room.title}</Text>
+                    <Text style={{color:'#888', fontSize:11, marginTop:10}}>🎤 {room.speakers}  🎧 {room.listeners}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        {/* ➕ 하단 플러스 버튼 (수동 생성) */}
+        <TouchableOpacity style={styles.fab} onPress={() => setCreateModal(true)}>
+          <Text style={{fontSize: 30, color:'black', marginTop:-2}}>+</Text>
+        </TouchableOpacity>
+
+        {/* 방 만들기 모달 */}
+        <Modal visible={isCreateModal} transparent animationType="slide">
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+            <View style={styles.modalBox}>
+              <Text style={styles.modalTitle}>대화방 개설</Text>
+              <TextInput style={styles.input} placeholder="방 제목 입력" placeholderTextColor="#666" value={newTitle} onChangeText={setNewTitle} />
+              <View style={{flexDirection:'row', gap:10, marginBottom:20}}>
+                {['CHAT','LOVE','GAME'].map(c=>(
+                  <TouchableOpacity key={c} onPress={()=>setNewCat(c)} style={[styles.catBtn, newCat===c && {backgroundColor:'white'}]}>
+                    <Text style={{color: newCat===c?'black':'#888', fontWeight:'bold'}}>{c}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={{flexDirection:'row', gap:10}}>
+                <TouchableOpacity style={[styles.modalBtn, {backgroundColor:'#333'}]} onPress={()=>setCreateModal(false)}><Text style={{color:'white'}}>취소</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.modalBtn, {backgroundColor:'white'}]} onPress={createRoom}><Text style={{color:'black', fontWeight:'bold'}}>만들기</Text></TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* 프로필 모달 */}
+        <Modal visible={isProfileModal} transparent animationType="fade">
+          <TouchableOpacity activeOpacity={1} onPress={() => Keyboard.dismiss()} style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalBox}>
+                <Text style={styles.modalTitle}>MY PROFILE</Text>
+                <View style={{alignItems:'center', marginBottom:20}}>
+                  <Image source={{ uri: `https://api.dicebear.com/7.x/avataaars/png?seed=${myProfile.seed}` }} style={{width:80, height:80, borderRadius:40, borderWidth:2, borderColor:'white', marginBottom:10}} />
+                  <TextInput style={styles.profileInput} value={myProfile.name} onChangeText={(t)=>setMyProfile({...myProfile, name:t})} placeholder="닉네임 입력" placeholderTextColor="#999" />
+                </View>
+                <Text style={{color:'#FFD700', textAlign:'center', fontSize:20, fontWeight:'bold', marginBottom:20}}>💎 {myProfile.points.toLocaleString()} Point</Text>
+                <TouchableOpacity style={[styles.modalBtn, {backgroundColor:'white'}]} onPress={()=>setProfileModal(false)}><Text style={{fontWeight:'bold'}}>저장</Text></TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </TouchableOpacity>
+        </Modal>
+      </SafeAreaView>
+    );
+  };
+
+  // --- 화면 2: 방 상세 ---
+  const RoomDetail = ({ room, onBack }) => {
+    const [roomTension, setRoomTension] = useState(room.tension);
+    const theme = getTheme(roomTension);
+    const [chatMsg, setChatMsg] = useState('');
+    const [chats, setChats] = useState(INITIAL_CHATS);
+    const [voiceMode, setVoiceMode] = useState('NORMAL'); 
+    const flatListRef = useRef();
+
+    // AI 자동 대화
+    useEffect(() => {
+      const interval = setInterval(() => {
+        const scripts = BOT_SCRIPTS[room.category] || BOT_SCRIPTS['DEFAULT'];
+        const randomMsg = scripts[Math.floor(Math.random() * scripts.length)];
+        const botChat = { id: Date.now(), user: "User" + Math.floor(Math.random() * 100), text: randomMsg, isMe: false, isSystem: false };
+        setChats(prev => [...prev, botChat]);
+      }, 3500); 
+      return () => clearInterval(interval);
+    }, [room]);
+
+    const sendChat = () => {
+      if(!chatMsg.trim()) return;
+      const newChat = { id: Date.now(), user: "나", text: chatMsg, isMe: true };
+      setChats([...chats, newChat]);
+      setChatMsg('');
+    };
+
+    const sendGift = () => {
+      Alert.alert("💎 별풍선 쏘기", "100포인트를 선물하시겠습니까?", [
+        { text: "취소" },
+        { text: "쏘기!", onPress: () => {
+           setChats(prev => [...prev, { id: Date.now(), text: `💎 님이 별풍선 100개를 선물했습니다!`, isSystem: true }]);
+        }}
+      ]);
+    };
+
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{flex:1}}>
+          <View style={styles.roomHeader}>
+            <TouchableOpacity onPress={onBack}><Text style={{color:'white', fontSize:18, fontWeight:'bold'}}>‹ Back</Text></TouchableOpacity>
+            <View style={{alignItems:'center'}}>
+               <Text style={{color:'white', fontWeight:'bold'}}>{room.title}</Text>
+               <Text style={{color:theme.light, fontSize:10}}>Tension {roomTension} • {voiceMode} 모드</Text>
+            </View>
+            <View style={{width:40}}></View>
+          </View>
+
+          <View style={{flex:1}}>
+            <View style={{paddingHorizontal:20, marginBottom:10}}>
+              {/* 목소리 변조 버튼 */}
+              <View style={styles.voiceControl}>
+                {['NORMAL', 'HELIUM', 'CAVE', 'ROBOT'].map(mode => (
+                  <TouchableOpacity key={mode} onPress={()=>setVoiceMode(mode)} style={[styles.voiceBtn, voiceMode===mode && {backgroundColor:theme.light, borderColor:theme.light}]}>
+                    <Text style={[styles.voiceText, voiceMode===mode && {color:'black'}]}>{mode}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <View style={styles.topicCard}>
+                <View style={styles.speakerRow}>
+                  <PulseAvatar uri={room.host} color={theme.light} />
+                  <View style={{marginLeft:10}}>
+                     <Text style={{color:'white', fontWeight:'bold'}}>HOST</Text>
+                     <Text style={{color:theme.light, fontSize:12}}>말하는 중...</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.chatContainer}>
+              <FlatList
+                ref={flatListRef}
+                data={chats}
+                keyExtractor={item => item.id.toString()}
+                onContentSizeChange={()=> flatListRef.current?.scrollToEnd({animated: true})}
+                renderItem={({item}) => {
+                  if(item.isSystem) return <View style={styles.sysMsg}><Text style={styles.sysText}>{item.text}</Text></View>;
+                  return (
+                    <View style={[styles.chatBubble, item.isMe ? {alignSelf:'flex-end', backgroundColor:theme.bubble} : {alignSelf:'flex-start', backgroundColor:'#333'}]}>
+                      {!item.isMe && <Text style={styles.chatUser}>{item.user}</Text>}
+                      <Text style={{color:'white', fontSize:14}}>{item.text}</Text>
+                    </View>
+                  );
+                }}
+                contentContainerStyle={{padding:20}}
+              />
+            </View>
+          </View>
+
+          <View style={styles.inputArea}>
+            <TouchableOpacity onPress={sendGift} style={{marginRight:10}}><Text style={{fontSize:24}}>💎</Text></TouchableOpacity>
+            <TextInput 
+              style={styles.chatInput} 
+              placeholder="대화 참여..." 
+              placeholderTextColor="#888"
+              value={chatMsg}
+              onChangeText={setChatMsg}
+              onSubmitEditing={sendChat}
+            />
+            <TouchableOpacity onPress={sendChat} style={[styles.sendBtn, {backgroundColor:theme.light}]}>
+               <Text style={{fontWeight:'bold'}}>⬆</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  };
+
+  return currentRoom ? <RoomDetail room={currentRoom} onBack={() => setCurrentRoom(null)} /> : <Lobby />;
+}
+
+// --- 스타일 ---
+const styles = StyleSheet.create({
+  container: { flex: 1, paddingTop: 10 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 15, alignItems: 'center' },
+  headerTitle: { fontSize: 24, fontWeight: '900', color: 'white', fontStyle: 'italic' },
+  headerSubtitle: { fontSize: 10, color: '#aaa', marginTop: 2 }, 
+  pointsBadge: {flexDirection:'row', alignItems:'center', backgroundColor:'rgba(255,255,255,0.1)', paddingHorizontal:10, paddingVertical:5, borderRadius:20},
+  contentPadding: { paddingHorizontal: 20, flex: 1 },
+
+  flatBox: { backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, paddingVertical: 15, paddingHorizontal: 20, borderWidth: 1 },
+  flatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  flatLabel: { fontSize: 11, fontWeight: 'bold', letterSpacing: 1.5, opacity: 0.9 },
+  flatValue: { fontSize: 20, fontWeight: '900', fontStyle: 'italic' },
+  flatDesc: { color: '#ddd', fontSize: 12, marginTop: 10, textAlign: 'center', fontWeight: '500', opacity: 0.8 },
+  touchArea: { width: '100%', height: 30, justifyContent: 'center' },
+  sliderTrack: { width: '100%', height: 6, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 3 },
+  sliderFill: { height: '100%', borderRadius: 3 },
+  sliderThumb: { position: 'absolute', top: -7, width: 20, height: 20, backgroundColor: 'white', borderRadius: 10, marginLeft: -10, borderWidth:2, borderColor:'#000' },
+
+  listHeader: { flexDirection:'row', justifyContent:'space-between', alignItems:'center', marginBottom:12 },
+  sectionTitle: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+  card: { marginBottom: 12, borderRadius: 18, padding: 18, borderWidth: 1, backgroundColor: 'rgba(0,0,0,0.3)' },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
+  roomTitle: { fontSize: 16, fontWeight: 'bold', color: 'white', lineHeight: 22 },
+
+  // 우측 하단 플러스 버튼
+  fab: { position: 'absolute', bottom: 30, right: 20, width: 60, height: 60, borderRadius: 30, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor:'#000', shadowOpacity:0.5, shadowRadius:10, zIndex: 999 },
+
+  roomHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20 },
+  topicCard: { backgroundColor: 'rgba(255,255,255,0.05)', padding: 15, borderRadius: 20, marginTop: 10, flexDirection:'row', alignItems:'center' },
+  speakerRow: { flexDirection: 'row', alignItems: 'center' },
+
+  voiceControl: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
+  voiceBtn: { paddingVertical: 6, paddingHorizontal: 10, borderRadius: 15, borderWidth: 1, borderColor: '#444' },
+  voiceText: { color: '#888', fontSize: 10, fontWeight: 'bold' },
+
+  chatContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', borderTopLeftRadius: 30, borderTopRightRadius: 30 },
+  chatBubble: { padding: 12, borderRadius: 16, marginBottom: 10, maxWidth: '80%' },
+  chatUser: { color: '#ccc', fontSize: 10, marginBottom: 2, fontWeight:'bold' },
+  sysMsg: { alignSelf: 'center', backgroundColor: 'rgba(255,215,0,0.2)', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 15, marginBottom: 10 },
+  sysText: { color: '#FFD700', fontSize: 12, fontWeight: 'bold' },
+
+  inputArea: { flexDirection: 'row', padding: 15, backgroundColor: '#111', alignItems:'center' },
+  chatInput: { flex: 1, backgroundColor: '#333', color: 'white', borderRadius: 20, paddingHorizontal: 15, height: 40, marginRight: 10 },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center' },
+  modalBox: { width: 300, backgroundColor: '#1A1A1A', borderRadius: 24, padding: 25, borderWidth: 1, borderColor: '#333' },
+  modalTitle: { color: 'white', fontSize: 18, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
+  input: { backgroundColor: '#333', color: 'white', borderRadius: 12, padding: 15, marginBottom: 20 },
+  profileInput: { width: '90%', height: 50, backgroundColor: 'white', borderRadius: 12, color: 'black', fontSize: 18, fontWeight: 'bold', textAlign: 'center', paddingHorizontal: 10 },
+  catBtn: { padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#444' },
+  modalBtn: { flex: 1, padding: 15, borderRadius: 12, alignItems: 'center' }
+});

@@ -1,0 +1,1146 @@
+// App.js — TENtion KR v1.6.0 (Cafe Talk Focus Edition)
+// ✅ 카테고리 4개 유지 (Vibe/Friends/Try/Focus)
+// ✅ 슬롯 = 카페 + 대화 주제만 (프랜차이즈/개인/룸 랜덤 믹스)
+// ✅ 200개 대량 생성 + 도시/시간대 변경 시 재생성
+// ✅ 지정 시간·카페까지만 관리(책임 경계 UX) + 연장 합의 안내
+// ✅ Expo Snack / RN Web OK (외부 라이브러리 없음)
+
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  SafeAreaView, View, Text, TouchableOpacity, TextInput, ScrollView,
+  StyleSheet, Alert, Share, Platform, KeyboardAvoidingView
+} from "react-native";
+
+/* ---- default export ---- */
+export default function App(){ return <Root/> }
+
+/* =========================
+   Copy / i18n (KO only)
+========================= */
+const T = {
+  app:"TENtion KR",
+  my:"내 슬롯",
+  create:"+ 주제 제안",
+  searchPH:"주제/카페/도시 검색…",
+  sort:"정렬",
+  sortOpt:["마감 임박","최신순","평점순"],
+  time:"시간대",
+  timeBands:["이른 아침","오전","점심","오후","저녁","심야"],
+  duration:"분",
+  noSlotsT:"표시할 슬롯이 없어요",
+  noSlotsS:"도시/시간대/시간(분)을 바꿔봐.",
+  details:"상세",
+  checkin:"참여하기",
+  leave:"나가기",
+  share:"공유",
+  back:"← 뒤로",
+  safetyNoteShort:"공공장소(카페)에서, 약속된 시간까지만.",
+  // 디테일/체크인에서 쓰는 “경계” 문구
+  boundaryTitle:"TENtion 안내",
+  boundaryBody:
+`• 텐션이 제공하는 만남은 “지정된 카페 + 지정된 시간” 기준이야.
+• 시간 연장은 두 사람이 합의해서 자율적으로 결정할 수 있어.
+• 지정 시간 이후/다른 장소로의 이동은 텐션 관리 범위 밖이야.`,
+};
+
+/* =========================
+   Categories (4)
+========================= */
+const CATS = [
+  {key:"Vibe",    label:"Vibe",    icon:"☕", color:"#FF5CAB"}, // 썸스러운/가벼운 텐션
+  {key:"Friends", label:"Friends", icon:"😄", color:"#2EE778"}, // 웃기고 편한 토크
+  {key:"Try",     label:"Try",     icon:"🧠", color:"#6AAEFF"}, // 새로운 시도/주제형
+  {key:"Focus",   label:"Focus",   icon:"📚", color:"#FFA23B"}, // 진지/성장/커리어
+];
+const catLabel = (k)=> CATS.find(x=>x.key===k)?.label || k;
+const catIcon  = (k)=> CATS.find(x=>x.key===k)?.icon  || "💬";
+const catColor = (k)=> CATS.find(x=>x.key===k)?.color || "#6AAEFF";
+
+/* =========================
+   Cities
+========================= */
+const CITY_LIST = [
+  {code:"GN",  name:"강남/역삼",   region:"서울"},
+  {code:"HD",  name:"홍대/합정",   region:"서울"},
+  {code:"JS",  name:"잠실/석촌",   region:"서울"},
+  {code:"GS",  name:"성수/건대",   region:"서울"},
+  {code:"YD",  name:"여의도",      region:"서울"},
+  {code:"SEO", name:"서울(기타)",  region:"서울"},
+  {code:"SUW", name:"수원",        region:"경기"},
+  {code:"GGN", name:"경기 북부",   region:"경기"},
+  {code:"GGS", name:"경기 남부",   region:"경기"},
+  {code:"ICN", name:"인천/송도",   region:"수도권"},
+];
+const CITY = CITY_LIST.reduce((m,c)=>{ m[c.code]=c; return m; },{});
+const cityName = (code)=> CITY[code]?.name || code;
+const HOT5 = ["GN","HD","JS","GS","YD"];
+
+/* =========================
+   Constants
+========================= */
+const DUR_OPTS = [10,20,30,40,50,60,70,80,90,100];
+const BAND_ANCHOR = { "이른 아침":"06:30","오전":"10:00","점심":"13:00","오후":"16:00","저녁":"19:30","심야":"22:30" };
+
+const ME = "Me";
+
+/* =========================
+   Helpers
+========================= */
+const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+const pad2=(n)=>String(n).padStart(2,"0");
+function parseHM(str){ if(!str||!/^\d{2}:\d{2}$/.test(str)) return null; const [h,m]=str.split(":").map(Number); return h*60+m; }
+function addMin(startHM, delta){
+  const m=(parseHM(startHM)||0)+delta;
+  const mm=((m%1440)+1440)%1440;
+  return `${pad2(Math.floor(mm/60))}:${pad2(mm%60)}`;
+}
+function spanMins(start,end){
+  const s=parseHM(start),e=parseHM(end);
+  if(s==null||e==null) return 10;
+  let d=e-s; if(d<=0) d+=1440;
+  return d;
+}
+const fmt24=(str)=>str||"—";
+const uniq = (arr)=> Array.from(new Set(arr));
+const includes = (arr, v)=> (arr||[]).includes(v);
+
+function buildTodayTs(hm){
+  const now=new Date();
+  const [h,m]=hm.split(":").map(Number);
+  return new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0).getTime();
+}
+function getState(nowMs, startHM, durMin){
+  const start = buildTodayTs(startHM);
+  const end   = start + (durMin||10)*60*1000;
+  if(nowMs < start) return {state:"upcoming", secsToStart: Math.floor((start-nowMs)/1000)};
+  if(nowMs <= end)  return {state:"live", secsToStart:0};
+  return {state:"ended", secsToStart:0};
+}
+function fmtHMS(secs){
+  const h=Math.floor(secs/3600);
+  const m=Math.floor((secs%3600)/60);
+  const s=secs%60;
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+}
+const tintByMins=(mins)=> mins<=0?{color:"#666"}: mins<=10?{color:"#FF5A5A",fontWeight:"900"}: mins<=30?{color:"#FF9F1A",fontWeight:"900"}:{color:"#6AAEFF"};
+const stars=(n)=>!n?"⭐ —":"⭐".repeat(Math.max(1,Math.min(5,Math.round(n))));
+
+/* =========================
+   Cafe DB (Brand / Private / Room)
+   - 프랜차이즈/개인/룸 섞어서 “안정+힙” 모두 커버
+========================= */
+const CAFE_DB = [
+  { name: "스타벅스",      type: "Brand",  info: "넓고 무난, 첫 만남 안정감" },
+  { name: "투썸플레이스",  type: "Brand",  info: "좌석 넉넉 + 디저트" },
+  { name: "할리스",        type: "Brand",  info: "카공 분위기, 대화 부담 적음" },
+  { name: "폴바셋",        type: "Brand",  info: "조용-차분 라인" },
+  { name: "메가커피(대형)", type: "Brand",  info: "가성비 + 접근성" },
+
+  { name: "힙한 개인카페",   type: "Private", info: "감성/무드, 대화가 잘 풀림" },
+  { name: "창고형 카페",     type: "Private", info: "테이블 넓음, 눈치 적음" },
+  { name: "북카페",          type: "Private", info: "조용+정돈, 진지 토크 좋음" },
+
+  { name: "미팅룸 카페",     type: "Room", info: "스터디룸/대형테이블 가능" },
+  { name: "스터디 카페",     type: "Room", info: "집중/프로젝트 토크 최적" },
+];
+
+function weightedCafePick(){
+  // Brand 0.60 / Private 0.30 / Room 0.10
+  const r=Math.random();
+  const bucket = r<0.60 ? "Brand" : (r<0.90 ? "Private" : "Room");
+  const list = CAFE_DB.filter(x=>x.type===bucket);
+  return list[Math.floor(Math.random()*list.length)];
+}
+function cafeBadgeText(type){
+  if(type==="Brand") return "Brand";
+  if(type==="Room")  return "Room";
+  return "Hot";
+}
+function cafeBadgeTone(type){
+  if(type==="Brand") return "#3EC6FF";
+  if(type==="Room")  return "#2EE778";
+  return "#FF5CAB";
+}
+
+/* =========================
+   Topic Pool (카페 대화 주제만!)
+   - 가볍게/힙하게/즐겁게/진지하게 섞어줌
+========================= */
+const TOPIC_POOL = {
+  Vibe: [
+    "요즘 설레는 것 한 가지",
+    "첫인상 vs 진짜 성격",
+    "연애 얘기 말고도 설렘 만드는 법",
+    "호감이 생기는 말투/매너",
+    "내가 은근 좋아하는 취향",
+    "‘편한 사람’의 특징",
+    "감정 기복 다루는 나만의 방법",
+  ],
+  Friends: [
+    "최근 제일 웃겼던 일",
+    "실패담 하나(웃기게)",
+    "TMI 교환 10분",
+    "요즘 빠진 밈/콘텐츠",
+    "숨겨둔 맛집/카페 취향",
+    "주말에 뭐 하고 놀아?",
+    "나의 기상천외 습관",
+  ],
+  Try: [
+    "2026에 해보고 싶은 작은 실험",
+    "요즘 배우고 싶은 것",
+    "새로운 루틴 하나 추천",
+    "혼자 하기 어려운 도전",
+    "MBTI 말고 ‘나’를 설명하는 단어",
+    "여행/취미 버킷리스트",
+    "요즘 관심사 한 줄 발표",
+  ],
+  Focus: [
+    "커리어 고민 10분 압축",
+    "이직/연봉/성장 고민",
+    "요즘 집중하는 프로젝트",
+    "생산성 루틴/도구 공유",
+    "읽은 책/아티클 한 줄 요약",
+    "재테크 초보가 궁금한 것",
+    "멘탈 관리: 불안 줄이는 방법",
+  ],
+};
+
+function defaultDesc(cat){
+  if(cat==="Vibe")    return "가볍고 솔직하게. 분위기 좋게 대화해요.";
+  if(cat==="Friends") return "재밌게 떠들고 웃는 토크.";
+  if(cat==="Try")     return "새로운 주제/시도. 짧게 실험해요.";
+  return               "진지하게 정리하고, 짧게 얻어가요.";
+}
+
+/* =========================
+   Auto Slot Generator (Cafe Talk)
+========================= */
+function guessBandFromStart(hm){
+  const m=parseHM(hm)||0,h=Math.floor(m/60);
+  if(h<9) return "이른 아침";
+  if(h<12) return "오전";
+  if(h<15) return "점심";
+  if(h<19) return "오후";
+  if(h<22) return "저녁";
+  return "심야";
+}
+function generateCafeTalkSlots({ cityCode="GN", band="저녁", count=20 }){
+  const list=[];
+  const anchor = BAND_ANCHOR[band] || "19:30";
+  const cats = ["Vibe","Friends","Try","Focus"];
+
+  for(let i=0;i<count;i++){
+    const type = cats[Math.floor(Math.random()*cats.length)];
+    const cafe = weightedCafePick();
+
+    const d = DUR_OPTS[Math.floor(Math.random()*DUR_OPTS.length)];
+    const start = addMin(anchor, 10 * Math.floor(Math.random()*18)); // 약 3시간 범위
+    const end = addMin(start, d);
+
+    const topic = TOPIC_POOL[type][Math.floor(Math.random()*TOPIC_POOL[type].length)];
+    const place = `${cityName(cityCode)} · ${cafe.name}`;
+
+    list.push({
+      id: Date.now()+Math.floor(Math.random()*1e6),
+      type,
+      city: cityCode,
+      band: guessBandFromStart(start),
+      title: `${topic}`,
+      place,
+      cafeType: cafe.type,
+      cafeInfo: cafe.info,
+      start,
+      end,
+      totalMins: spanMins(start,end),
+      minsLeft: Math.max(5, Math.floor(spanMins(start,end)*0.8)),
+      attendees: [],
+      proofScore: Math.round(3 + Math.random()*2),
+      desc: defaultDesc(type),
+    });
+  }
+  return list.sort((a,b)=>b.id-a.id);
+}
+
+/* =========================
+   Root
+========================= */
+function Root(){
+  const [nowMs,setNowMs]=useState(Date.now());
+  useEffect(()=>{ const id=setInterval(()=>setNowMs(Date.now()),1000); return ()=>clearInterval(id); },[]);
+
+  const [activeCat,setActiveCat]=useState(""); // ""=ALL
+  const [dur,setDur]=useState(10);
+  const [band,setBand]=useState(T.timeBands[4]); // 저녁
+  const [sortBy,setSortBy]=useState(T.sortOpt[0]);
+  const [selectedCities,setSelectedCities]=useState(HOT5);
+  const [showCitySheet,setShowCitySheet]=useState(false);
+  const [showSortSheet,setShowSortSheet]=useState(false);
+  const [myOnly,setMyOnly]=useState(false);
+  const [search,setSearch]=useState("");
+
+  const scrollRef=useRef(null);
+
+  const [slots,setSlots]=useState([]);
+
+  // 200개 생성 (선택 도시/시간대 기반)
+  useEffect(()=>{
+    const base = selectedCities.length ? selectedCities : HOT5;
+    const per  = Math.max(10, Math.floor(200 / base.length));
+    const packs = base.flatMap(code=>generateCafeTalkSlots({ cityCode:code, band, count:per }));
+    setSlots(packs.slice(0,200));
+  },[band, selectedCities]);
+
+  const resetHome=()=>{
+    setActiveCat("");
+    setDur(10);
+    setBand(T.timeBands[4]);
+    setSortBy(T.sortOpt[0]);
+    setSearch("");
+    setMyOnly(false);
+    setSelectedCities(HOT5);
+    scrollRef.current?.scrollTo({y:0,animated:true});
+  };
+
+  const toggleCity=(code)=>{
+    setSelectedCities(prev=>{
+      const has = prev.includes(code);
+      const next = has ? prev.filter(x=>x!==code) : [...prev, code];
+      return next;
+    });
+  };
+
+  const list = useMemo(()=>{
+    let arr = slots.slice();
+
+    if(activeCat) arr = arr.filter(s=>s.type===activeCat);
+
+    const cities = selectedCities.length ? selectedCities : HOT5;
+    arr = arr.filter(s=>includes(cities, s.city));
+
+    // 시간대 필터(상단 탭 기준)
+    arr = arr.filter(s=>s.band===band);
+
+    // duration 필터 (선택 분 이상)
+    arr = arr.filter(s => (s.totalMins||10) >= dur);
+
+    if(myOnly) arr = arr.filter(s => includes(s.attendees, ME));
+
+    if(search.trim()){
+      const q=search.trim().toLowerCase();
+      arr = arr.filter(s=>{
+        const txt = `${s.title} ${s.place} ${cityName(s.city)} ${s.band} ${s.cafeType}`.toLowerCase();
+        return txt.includes(q);
+      });
+    }
+
+    if(sortBy===T.sortOpt[0]) arr.sort((a,b)=>(a.minsLeft||1e9)-(b.minsLeft||1e9));
+    if(sortBy===T.sortOpt[1]) arr.sort((a,b)=>b.id-a.id);
+    if(sortBy===T.sortOpt[2]) arr.sort((a,b)=>(b.proofScore||0)-(a.proofScore||0));
+
+    return arr;
+  },[slots,activeCat,dur,band,sortBy,selectedCities,search,myOnly]);
+
+  const [screen,setScreen]=useState("home");
+  const [selId,setSelId]=useState(null);
+
+  const join=(slot)=>{
+    if(!slot) return;
+
+    const {state} = getState(nowMs, slot.start, slot.totalMins || 10);
+    if(state==="ended"){
+      Alert.alert("종료됨","이미 종료된 슬롯이야.");
+      return;
+    }
+
+    // ✅ 경계 UX: 체크인 시 안내
+    Alert.alert("참여 확정", T.boundaryBody);
+
+    setSlots(prev=>prev.map(s=>{
+      if(s.id!==slot.id) return s;
+      const already = includes(s.attendees, ME);
+      const nextAtt = already ? s.attendees : [...(s.attendees||[]), ME];
+      return {...s, attendees: nextAtt};
+    }));
+  };
+
+  const leave=(slot)=>{
+    if(!slot) return;
+    setSlots(prev=>prev.map(s=>{
+      if(s.id!==slot.id) return s;
+      return {...s, attendees:(s.attendees||[]).filter(x=>x!==ME)};
+    }));
+    Alert.alert("나가기","완료");
+  };
+
+  const shareSlot=async(slot)=>{
+    if(!slot) return;
+    try{
+      await Share.share({
+        message:
+`TENtion • ${catLabel(slot.type)} ${catIcon(slot.type)}
+${slot.title}
+📍 ${slot.place}
+🕒 ${fmt24(slot.start)} ~ ${fmt24(slot.end)} (${slot.totalMins}분)
+${T.safetyNoteShort}`
+      });
+    }catch(e){}
+  };
+
+  // “주제 제안” (create) — 실제 슬롯도 생성해주되 카페/대화 규칙 유지
+  const [createOpen,setCreateOpen]=useState(false);
+  const [form,setForm]=useState({
+    cat:"",
+    city:"GN",
+    topic:"",
+    dur:10,
+    start:"19:30",
+    _cityPick:false
+  });
+
+  const openCreate=()=>{
+    const firstSel = selectedCities[0] || "GN";
+    setForm({
+      cat: activeCat || "",
+      city: firstSel,
+      topic:"",
+      dur:10,
+      start: BAND_ANCHOR[band] || "19:30",
+      _cityPick:false
+    });
+    setCreateOpen(true);
+  };
+
+  const createSlot=()=>{
+    const cat = (form.cat || "Try");
+    const city = (form.city || "GN");
+    const mins = clamp(form.dur,10,100);
+
+    const start = (parseHM(form.start)!=null) ? form.start : (BAND_ANCHOR[band] || "19:30");
+    const end = addMin(start, mins);
+
+    const cafe = weightedCafePick();
+    const place = `${cityName(city)} · ${cafe.name}`;
+
+    const topic = (form.topic || TOPIC_POOL[cat][Math.floor(Math.random()*TOPIC_POOL[cat].length)]).trim();
+
+    const s = {
+      id: Date.now()+Math.floor(Math.random()*1e6),
+      type: cat,
+      city,
+      band: guessBandFromStart(start),
+      title: topic,
+      place,
+      cafeType: cafe.type,
+      cafeInfo: cafe.info,
+      start,
+      end,
+      totalMins: mins,
+      minsLeft: Math.max(5, Math.floor(mins*0.8)),
+      attendees: [],
+      proofScore:0,
+      desc: defaultDesc(cat),
+    };
+
+    setSlots(prev=>[s, ...prev]);
+    setCreateOpen(false);
+
+    setActiveCat(cat);
+    setBand(s.band); // 생성 슬롯이 속한 밴드로 맞춰서 바로 보이게
+    setSelectedCities(prev=> uniq(prev.includes(city)?prev:[...prev, city]));
+    setTimeout(()=>scrollRef.current?.scrollTo({y:0,animated:true}), 50);
+
+    Alert.alert("제안 완료","피드 최상단에 추가했어.");
+  };
+
+  return(
+    <SafeAreaView style={styles.container}>
+      {/* HEADER */}
+      <View style={styles.headerRow}>
+        <TouchableOpacity onPress={resetHome} style={{flexDirection:"row",alignItems:"flex-end"}} hitSlop={10}>
+          <Text style={styles.logo}>{T.app}</Text>
+        </TouchableOpacity>
+
+        <View style={{flexDirection:"row",gap:8,alignItems:"center"}}>
+          <TouchableOpacity
+            style={[styles.secondarySm, myOnly && styles.secondarySmOn]}
+            onPress={()=>setMyOnly(v=>!v)}
+          >
+            <Text style={[styles.secondarySmT, myOnly && styles.secondarySmTOn]}>{T.my}</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.primarySm} onPress={openCreate}>
+            <Text style={styles.primarySmT}>{T.create}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={{paddingBottom:90}}
+        showsVerticalScrollIndicator={false}
+        overScrollMode="never"
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* CATEGORIES — 4칩 고정 1줄 */}
+        <View style={styles.catRow}>
+          {CATS.map(c=>{
+            const on = activeCat===c.key;
+            return(
+              <TouchableOpacity
+                key={c.key}
+                onPress={()=>setActiveCat(p=>p===c.key?"":c.key)}
+                style={[
+                  styles.catChip,
+                  {borderColor:c.color},
+                  on && {backgroundColor:c.color+"22"}
+                ]}
+              >
+                <Text style={[styles.catText,{color:c.color}]} numberOfLines={1}>
+                  {c.icon} {c.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Row: duration • sort */}
+        <View style={styles.row2}>
+          <Stepper
+            label={T.duration}
+            value={dur}
+            step={10}
+            onMinus={()=>setDur(clamp(dur-10,10,100))}
+            onPlus={()=>setDur(clamp(dur+10,10,100))}
+          />
+          <TouchableOpacity style={styles.sortBtn} onPress={()=>setShowSortSheet(true)}>
+            <Text style={styles.sortBtnT} numberOfLines={1}>{T.sort}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 시간대 */}
+        <View style={styles.bandRow}>
+          {T.timeBands.map(b=>(
+            <TouchableOpacity
+              key={b}
+              onPress={()=>setBand(b)}
+              style={[styles.bandChip, band===b && styles.bandChipOn]}
+            >
+              <Text style={[styles.bandChipT, band===b && styles.bandChipTOn]} numberOfLines={1}>{b}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* HOT5 + 지역선택 */}
+        <View style={styles.hotRow}>
+          {HOT5.map(code=>{
+            const on = selectedCities.includes(code);
+            return(
+              <TouchableOpacity
+                key={code}
+                onPress={()=>toggleCity(code)}
+                style={[styles.cityChip, on && styles.cityChipActive]}
+              >
+                <Text style={[styles.cityChipT, on && styles.cityChipTActive]} numberOfLines={1}>
+                  {cityName(code)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity style={styles.moreChip} onPress={()=>setShowCitySheet(true)}>
+            <Text style={styles.moreChipT} numberOfLines={1}>지역선택 ▾</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* SEARCH */}
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder={T.searchPH}
+          placeholderTextColor="#7a8596"
+          style={styles.search}
+        />
+
+        {/* FEED */}
+        {list.length===0 && (
+          <View style={styles.empty}>
+            <Text style={styles.emptyT}>{T.noSlotsT}</Text>
+            <Text style={styles.emptyS}>{T.noSlotsS}</Text>
+          </View>
+        )}
+
+        {list.map(s=>(
+          <Card
+            key={s.id}
+            slot={s}
+            nowMs={nowMs}
+            onDetails={()=>{ setSelId(s.id); setScreen("detail"); }}
+            onPrimary={()=>join(s)}
+          />
+        ))}
+
+        <View style={styles.noteBox}>
+          <Text style={styles.note}>{T.safetyNoteShort} · 연장은 합의 · 이후/이동은 텐션 범위 밖</Text>
+        </View>
+      </ScrollView>
+
+      {/* SORT SHEET */}
+      {showSortSheet && (
+        <ActionSheet
+          title={T.sort}
+          value={sortBy}
+          options={T.sortOpt}
+          onPick={(v)=>{ setSortBy(v); setShowSortSheet(false); }}
+          onCancel={()=>setShowSortSheet(false)}
+        />
+      )}
+
+      {/* CITY SHEET */}
+      {showCitySheet && (
+        <MultiCitySheet
+          currentList={selectedCities}
+          onApply={(codes)=>{ setSelectedCities(codes); setShowCitySheet(false); }}
+          onClose={()=>setShowCitySheet(false)}
+        />
+      )}
+
+      {/* CREATE */}
+      {createOpen && (
+        <CreateModal
+          form={form}
+          setForm={setForm}
+          onClose={()=>setCreateOpen(false)}
+          onCreate={createSlot}
+          currentBand={band}
+        />
+      )}
+
+      {/* DETAILS */}
+      {screen==="detail" && selId && (
+        <Details
+          slot={slots.find(s=>s.id===selId)}
+          nowMs={nowMs}
+          onBack={()=>setScreen("home")}
+          onShare={()=>shareSlot(slots.find(s=>s.id===selId))}
+          onJoin={()=>join(slots.find(s=>s.id===selId))}
+          onLeave={()=>leave(slots.find(s=>s.id===selId))}
+        />
+      )}
+    </SafeAreaView>
+  );
+}
+
+/* =========================
+   UI Components
+========================= */
+function Stepper({label,value,step=1,onMinus,onPlus}){
+  return(
+    <View style={styles.stepper}>
+      <TouchableOpacity style={styles.stepBtn} onPress={onMinus} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+        <Text style={styles.stepBtnT}>−</Text>
+      </TouchableOpacity>
+      <View style={styles.stepMid}>
+        <Text style={styles.stepVal} numberOfLines={1}>{value}</Text>
+        <Text style={styles.stepLbl} numberOfLines={1}>{label}</Text>
+      </View>
+      <TouchableOpacity style={styles.stepBtn} onPress={onPlus} hitSlop={{top:8,bottom:8,left:8,right:8}}>
+        <Text style={styles.stepBtnT}>＋</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+function Card({slot,onDetails,onPrimary,nowMs}){
+  if(!slot) return null;
+
+  const {state, secsToStart} = getState(nowMs, slot.start, slot.totalMins || 10);
+  const tint  = tintByMins(slot.minsLeft || 10);
+  const ratio = (slot.totalMins || 10) ? Math.max(0, (slot.minsLeft||0))/(slot.totalMins||10) : 0;
+
+  const rightBadge = (
+    state==="upcoming"
+      ? <MiniBadge text={`⏳ ${fmtHMS(secsToStart)}`} tone="#3EC6FF"/>
+      : state==="live"
+        ? <MiniBadge text={`진행중`} tone="#2EE778"/>
+        : <MiniBadge text={`종료`} tone="#666"/>
+  );
+
+  return(
+    <View style={[styles.card,{borderColor:catColor(slot.type)}]}>
+      <View style={styles.cardHead}>
+        <Text style={[styles.cardType,{color:catColor(slot.type)}]} numberOfLines={1}>
+          {catIcon(slot.type)} {catLabel(slot.type)}  •  {cityName(slot.city)}  •  {slot.band}
+        </Text>
+        <View style={{flexDirection:"row",gap:6,alignItems:"center"}}>
+          <MiniBadge text={cafeBadgeText(slot.cafeType)} tone={cafeBadgeTone(slot.cafeType)} />
+          {rightBadge}
+        </View>
+      </View>
+
+      <Text style={styles.cardTitle} numberOfLines={2}>{slot.title}</Text>
+
+      <Text style={styles.cardLine}>
+        📍 {slot.place} • {slot.cafeInfo}
+      </Text>
+
+      <Text style={styles.cardLine}>
+        🕒 {fmt24(slot.start)} ~ {fmt24(slot.end)} • {Math.max(10,slot.totalMins||10)}분 • <Text style={tint}>{fmtHMS(Math.max(0, Math.floor((slot.minsLeft||0)*60)))}</Text>
+      </Text>
+
+      <Text style={styles.cardLine}>👥 {slot.attendees?.length || 0}명 • {stars(slot.proofScore)}</Text>
+
+      <View style={styles.progOuter}>
+        <View style={[styles.progInner,{width:`${Math.max(4,ratio*100)}%`, backgroundColor:tint.color||"#6AAEFF"}]} />
+      </View>
+
+      <Text style={styles.cardDesc} numberOfLines={2}>{slot.desc}</Text>
+
+      <View style={styles.cardFoot}>
+        <TouchableOpacity style={styles.outBtn} onPress={onDetails}>
+          <Text style={styles.outBtnT}>{T.details}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.inBtn} onPress={onPrimary}>
+          <Text style={styles.inBtnT}>{T.checkin}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
+  if(!slot) return null;
+  const joined = (slot.attendees||[]).includes(ME);
+
+  const {state, secsToStart} = getState(nowMs, slot.start, slot.totalMins || 10);
+  const labelTone = state==="live" ? "#2EE778" : (state==="upcoming" ? "#3EC6FF" : "#666");
+  const labelText = state==="upcoming" ? `⏳ ${fmtHMS(secsToStart)}` : (state==="live" ? "진행중" : "종료");
+
+  const tint   = tintByMins(slot.minsLeft || 0);
+  const ratio  = (slot.totalMins||10) ? Math.max(0, (slot.minsLeft||0))/(slot.totalMins||10) : 0;
+
+  return(
+    <View style={styles.detailWrap}>
+      <SafeAreaView />
+      <ScrollView contentContainerStyle={{padding:18,paddingBottom:120}} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        <TouchableOpacity onPress={onBack} hitSlop={12}>
+          <Text style={styles.back}>{T.back}</Text>
+        </TouchableOpacity>
+
+        <View style={[styles.detailsBox,{borderColor:catColor(slot.type)}]}>
+          <View style={styles.badgeRow}>
+            <MiniBadge text={`${catIcon(slot.type)} ${catLabel(slot.type)}`} tone={catColor(slot.type)} />
+            <MiniBadge text={cafeBadgeText(slot.cafeType)} tone={cafeBadgeTone(slot.cafeType)} />
+            <MiniBadge text={labelText} tone={labelTone} />
+          </View>
+
+          <Text style={[styles.detailsTitle,{color:catColor(slot.type)}]} numberOfLines={3}>
+            {slot.title}
+          </Text>
+
+          <View style={styles.infoBlock}>
+            <Text style={styles.infoLine}>📍 {slot.place} · {slot.cafeInfo}</Text>
+            <Text style={styles.infoLine}>🕒 {fmt24(slot.start)} ~ {fmt24(slot.end)} · {slot.totalMins}분</Text>
+            <Text style={styles.infoLine}>👥 참여자 {slot.attendees?.length || 0}명 · {stars(slot.proofScore)}</Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.secTitle}>⏱️ 진행상황</Text>
+            <Text style={styles.cardLine}>
+              남은 기준시간: <Text style={tint}>{Math.max(0,slot.minsLeft||0)}분</Text>
+            </Text>
+            <View style={styles.progOuter}>
+              <View style={[styles.progInner,{width:`${Math.max(4,ratio*100)}%`, backgroundColor:tint.color||"#6AAEFF"}]} />
+            </View>
+          </View>
+
+          {/* ✅ 경계 UX: 디테일에서 또 한 번 */}
+          <View style={styles.policyBox}>
+            <Text style={styles.secTitle}>✅ {T.boundaryTitle}</Text>
+            <Text style={styles.policyLine}>• 만남은 “지정된 카페 + 지정된 시간” 기준</Text>
+            <Text style={styles.policyLine}>• 시간 연장은 두 사람이 합의해서 자율 결정</Text>
+            <Text style={styles.policyLine}>• 이후 만남/장소 이동은 텐션 관리 범위 밖</Text>
+          </View>
+
+          <View style={{flexDirection:"row",gap:10,marginTop:12}}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={onShare}>
+              <Text style={styles.secondaryText}>{T.share}</Text>
+            </TouchableOpacity>
+
+            {!joined && (
+              <TouchableOpacity style={styles.primaryBtn} onPress={onJoin}>
+                <Text style={styles.primaryText}>{T.checkin}</Text>
+              </TouchableOpacity>
+            )}
+
+            {joined && (
+              <TouchableOpacity
+                style={[styles.secondaryBtn,{borderColor:"#FF5A5A",backgroundColor:"#FF5A5A22"}]}
+                onPress={onLeave}
+              >
+                <Text style={[styles.secondaryText,{color:"#FF5A5A"}]}>{T.leave}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function MiniBadge({text,tone}){
+  return(
+    <View style={[styles.miniBadge,{backgroundColor:tone+"22",borderColor:tone}]}>
+      <Text style={[styles.miniBadgeT,{color:tone}]}>{text}</Text>
+    </View>
+  );
+}
+
+function ActionSheet({title,value,options,onPick,onCancel}){
+  return(
+    <View style={styles.sheetWrap}>
+      <TouchableOpacity style={{flex:1}} onPress={onCancel} />
+      <View style={styles.sheetCard}>
+        <View style={styles.sheetHandle}/>
+        <Text style={styles.sheetTitle}>{title}</Text>
+        {options.map(opt=>(
+          <TouchableOpacity key={opt} style={styles.sheetItem} onPress={()=>onPick(opt)}>
+            <Text style={[styles.sheetItemT, value===opt && {color:"#3EC6FF"}]}>
+              {opt}{value===opt?" •":""}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={[styles.primaryBtn,{marginTop:6}]} onPress={onCancel}>
+          <Text style={styles.primaryText}>OK</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+/* Multi City Sheet */
+function MultiCitySheet({currentList,onApply,onClose}){
+  const [local,setLocal]=useState(uniq(currentList || []));
+  const toggle=(code)=> setLocal(prev=>{
+    const has = prev.includes(code);
+    return has ? prev.filter(x=>x!==code) : [...prev, code];
+  });
+  const apply=()=> onApply(uniq(local));
+  const reset=()=> setLocal([]);
+
+  // 그룹
+  const groups = {};
+  CITY_LIST.forEach(c=>{
+    const g = c.region || "기타";
+    if(!groups[g]) groups[g]=[];
+    groups[g].push(c);
+  });
+
+  return(
+    <View style={styles.sheetWrap}>
+      <TouchableOpacity style={{flex:1}} onPress={onClose} />
+      <View style={styles.sheetCardTall}>
+        <View style={styles.sheetHandle}/>
+        <Text style={styles.sheetTitle}>지역(복수선택)</Text>
+
+        <ScrollView style={{maxHeight:420}} showsVerticalScrollIndicator={false} overScrollMode="never">
+          {Object.keys(groups).map(gr=>(
+            <View key={gr} style={{marginBottom:8}}>
+              <Text style={{color:"#9aa",marginBottom:6,fontWeight:"800"}}>{gr}</Text>
+              {groups[gr].map(c=>{
+                const on = local.includes(c.code);
+                return(
+                  <TouchableOpacity key={c.code} style={styles.cityRow} onPress={()=>toggle(c.code)}>
+                    <View style={[styles.chk, on && styles.chkOn]}>
+                      <Text style={[styles.chkT, on && styles.chkTOn]}>✓</Text>
+                    </View>
+                    <Text style={[styles.cityRowT, on && {color:"#3EC6FF"}]} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ))}
+        </ScrollView>
+
+        <View style={{flexDirection:"row",gap:8,marginTop:10,justifyContent:"flex-end"}}>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={reset}>
+            <Text style={styles.secondaryText}>초기화</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryBtn} onPress={apply}>
+            <Text style={styles.primaryText}>적용</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/* Create Modal: “주제 제안” */
+function CreateModal({form,setForm,onClose,onCreate,currentBand}){
+  const setDur=(v)=>setForm(f=>({...f,dur:clamp(v,10,100)}));
+
+  return(
+    <View style={styles.modalWrap}>
+      <SafeAreaView />
+      <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==="ios"?"padding":undefined}>
+        <View style={styles.modalHead}>
+          <Text style={styles.modalTitle}>주제 제안</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={12}>
+            <Text style={styles.modalClose}>✕</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView
+          style={{flex:1}}
+          contentContainerStyle={{padding:14,paddingBottom:120}}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.formLabel}>카테고리</Text>
+          <View style={styles.dualWrap}>
+            {CATS.map(c=>(
+              <TouchableOpacity
+                key={c.key}
+                onPress={()=>setForm(f=>({...f,cat:f.cat===c.key?"":c.key}))}
+                style={[
+                  styles.formChipHalf,
+                  {borderColor:c.color, justifyContent:"center"},
+                  form.cat===c.key && {backgroundColor:c.color+"22"}
+                ]}
+              >
+                <Text style={[styles.formChipT,{color:c.color,textAlign:"center"}]} numberOfLines={1}>
+                  {c.icon} {c.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.formLabel}>도시</Text>
+          <View style={styles.dualRow}>
+            <Picker button={"도시"} value={cityName(form.city)} onPress={()=>setForm(f=>({...f, _cityPick:true}))} />
+          </View>
+
+          {form._cityPick && (
+            <CitySheetSingle
+              current={form.city}
+              onPick={(v)=>setForm(f=>({...f,city:v,_cityPick:false}))}
+              onClose={()=>setForm(f=>({...f,_cityPick:false}))}
+            />
+          )}
+
+          <Text style={styles.formLabel}>시작 (24H)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="HH:MM"
+            placeholderTextColor="#738"
+            value={form.start}
+            onChangeText={t=>setForm(f=>({...f,start:t}))}
+          />
+
+          <Text style={styles.formLabel}>진행시간</Text>
+          <View style={styles.durationGrid}>
+            {DUR_OPTS.map(n=>(
+              <TouchableOpacity
+                key={n}
+                style={[styles.timeChipGrid, form.dur===n && styles.timeChipGridOn]}
+                onPress={()=>setDur(n)}
+              >
+                <Text style={[styles.timeChipGridT, form.dur===n && styles.timeChipGridTOn]}>{n} 분</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.formLabel}>주제(선택)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="예: 요즘 설레는 것 / 실패담 / 새해 목표 / 커리어 고민…"
+            placeholderTextColor="#738"
+            value={form.topic}
+            onChangeText={v=>setForm(f=>({...f,topic:v}))}
+          />
+
+          <View style={{flexDirection:"row",gap:8,marginTop:10}}>
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={()=>Alert.alert("안내", T.boundaryBody)}
+            >
+              <Text style={styles.secondaryText}>안전/경계</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.primaryBtn} onPress={onCreate}>
+              <Text style={styles.primaryText}>피드에 추가</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={{color:"#6c7686",marginTop:10,fontSize:12,lineHeight:18}}>
+            * 텐션은 기본적으로 “{currentBand}” 탭에서 슬롯이 보여.
+            {"\n"}* 카페는 조건을 만족하는 타입(Brand/Hot/Room) 중 랜덤으로 배정되는 컨셉이야.
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+function CitySheetSingle({current,onPick,onClose}){
+  return(
+    <View style={styles.sheetWrap}>
+      <TouchableOpacity style={{flex:1}} onPress={onClose} />
+      <View style={styles.sheetCardTall}>
+        <View style={styles.sheetHandle}/>
+        <Text style={styles.sheetTitle}>도시 선택</Text>
+        <ScrollView style={{maxHeight:420}} showsVerticalScrollIndicator={false} overScrollMode="never">
+          {CITY_LIST.map(c=>(
+            <TouchableOpacity key={c.code} style={styles.cityRow} onPress={()=>onPick(c.code)}>
+              <Text style={[styles.cityRowT, current===c.code && {color:"#3EC6FF"}]} numberOfLines={1}>
+                {c.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+        <TouchableOpacity style={[styles.primaryBtn,{marginTop:10}]} onPress={onClose}>
+          <Text style={styles.primaryText}>완료</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+function Picker({button,value,onPress}){
+  return(
+    <TouchableOpacity style={[styles.picker, styles.duo]} onPress={onPress}>
+      <Text style={styles.pickerT} numberOfLines={1}>
+        {button}: <Text style={{color:"#fff"}}>{value}</Text>
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
+/* =========================
+   Styles (v1.5 vibe 유지)
+========================= */
+const CONTROL_H = 44;
+
+const styles = StyleSheet.create({
+  container:{flex:1,backgroundColor:"#0D0F13"},
+
+  headerRow:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",paddingHorizontal:12,paddingTop:6,marginBottom:6},
+  logo:{color:"#fff",fontSize:28,fontWeight:"900"},
+  primarySm:{backgroundColor:"#3EC6FF",paddingVertical:9,paddingHorizontal:12,borderRadius:12},
+  primarySmT:{color:"#0D0F13",fontWeight:"900"},
+  secondarySm:{backgroundColor:"#3EC6FF22",borderWidth:1,borderColor:"#3EC6FF",paddingVertical:9,paddingHorizontal:12,borderRadius:12},
+  secondarySmOn:{backgroundColor:"#3EC6FF"},
+  secondarySmT:{color:"#3EC6FF",fontWeight:"800"},
+  secondarySmTOn:{color:"#0D0F13",fontWeight:"900"},
+
+  catRow:{flexDirection:"row",justifyContent:"space-between",paddingHorizontal:12,marginBottom:8},
+  catChip:{width:"23.5%",paddingVertical:10,paddingHorizontal:8,borderWidth:2,borderRadius:14,alignItems:"center",justifyContent:"center"},
+  catText:{fontWeight:"900",fontSize:13},
+
+  row2:{flexDirection:"row",gap:8,marginBottom:8,paddingHorizontal:12},
+  stepper:{
+    flex:1, height:CONTROL_H, borderRadius:12, backgroundColor:"#161A22",
+    borderWidth:1, borderColor:"#2A2F38", flexDirection:"row", overflow:"hidden"
+  },
+  stepBtn:{width:48, alignItems:"center", justifyContent:"center"},
+  stepBtnT:{color:"#fff",fontSize:18,fontWeight:"900"},
+  stepMid:{flex:1, alignItems:"center", justifyContent:"center", borderLeftWidth:1, borderRightWidth:1, borderColor:"#2A2F38"},
+  stepVal:{color:"#fff",fontWeight:"900",fontSize:16,lineHeight:18},
+  stepLbl:{color:"#9aa",fontWeight:"700",fontSize:11,marginTop:2},
+
+  sortBtn:{width:110, height:CONTROL_H, borderRadius:12, backgroundColor:"#161A22", borderWidth:1, borderColor:"#2A2F38", alignItems:"center", justifyContent:"center"},
+  sortBtnT:{color:"#fff",fontWeight:"900",fontSize:13},
+
+  bandRow:{flexDirection:"row",justifyContent:"space-between",gap:6,marginBottom:8,paddingHorizontal:12},
+  bandChip:{flexBasis:"15.5%",height:36,borderRadius:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",alignItems:"center",justifyContent:"center"},
+  bandChipOn:{backgroundColor:"#3A3F4A"},
+  bandChipT:{color:"#9aa",fontWeight:"800",fontSize:12},
+  bandChipTOn:{color:"#fff"},
+
+  hotRow:{flexDirection:"row",justifyContent:"space-between",gap:6,marginBottom:8,paddingHorizontal:12},
+  cityChip:{flexBasis:"16%",height:36,paddingHorizontal:6,borderRadius:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",alignItems:"center",justifyContent:"center"},
+  cityChipActive:{backgroundColor:"#3A3F4A"},
+  cityChipT:{color:"#9aa",fontWeight:"800",fontSize:12},
+  cityChipTActive:{color:"#fff"},
+  moreChip:{flexBasis:"16%",height:36,paddingHorizontal:6,borderRadius:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",alignItems:"center",justifyContent:"center"},
+  moreChipT:{color:"#ddd",fontWeight:"800",fontSize:12},
+
+  search:{backgroundColor:"#141821",color:"#fff",padding:12,borderRadius:12,borderWidth:1,borderColor:"#232833",marginBottom:8,marginHorizontal:12},
+
+  empty:{padding:14,borderRadius:12,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",marginTop:4,marginHorizontal:12},
+  emptyT:{color:"#fff",fontWeight:"900",marginBottom:4},
+  emptyS:{color:"#9aa"},
+
+  card:{borderWidth:2,borderRadius:12,padding:12,marginBottom:10,marginHorizontal:12},
+  cardHead:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:4},
+  cardType:{fontWeight:"900",fontSize:12,maxWidth:"65%"},
+  cardTitle:{color:"#fff",fontSize:17,fontWeight:"900",marginBottom:6},
+  cardLine:{color:"#bbb",fontSize:12,marginBottom:4},
+  cardDesc:{color:"#cfe8cf",fontSize:12,marginTop:2},
+  progOuter:{height:6,backgroundColor:"#1A1D23",borderRadius:6,overflow:"hidden",marginBottom:6,marginTop:2},
+  progInner:{height:6,borderRadius:6},
+  cardFoot:{flexDirection:"row",gap:10,marginTop:8},
+  outBtn:{borderWidth:1,borderColor:"#555",paddingVertical:8,paddingHorizontal:14,borderRadius:10},
+  outBtnT:{color:"#ddd",fontWeight:"800",fontSize:12},
+  inBtn:{backgroundColor:"#3EC6FF",paddingVertical:8,paddingHorizontal:14,borderRadius:10},
+  inBtnT:{color:"#0D0F13",fontWeight:"900",fontSize:12},
+
+  detailWrap:{position:"absolute",left:0,right:0,top:0,bottom:0,backgroundColor:"#0D0F13"},
+  back:{color:"#9aa",marginBottom:12,fontSize:14},
+  detailsBox:{borderWidth:2,borderRadius:14,padding:16},
+  detailsTitle:{fontSize:22,fontWeight:"900",marginBottom:8},
+  badgeRow:{flexDirection:"row",gap:8,marginBottom:8},
+  miniBadge:{borderWidth:1,paddingVertical:2,paddingHorizontal:8,borderRadius:8},
+  miniBadgeT:{fontSize:11,fontWeight:"800"},
+
+  infoBlock:{backgroundColor:"#11161d",borderWidth:1,borderColor:"#253041",borderRadius:12,padding:12,marginTop:4},
+  infoLine:{color:"#dfe7f3",marginBottom:6,fontSize:14},
+  section:{marginTop:12},
+  secTitle:{color:"#fff",fontWeight:"900",marginBottom:6,fontSize:16},
+
+  policyBox:{backgroundColor:"#101820",borderWidth:1,borderColor:"#2A3748",borderRadius:12,padding:12,marginTop:10},
+  policyLine:{color:"#cbd3df",fontSize:13,marginBottom:6},
+
+  sheetWrap:{position:"absolute",left:0,right:0,top:0,bottom:0,backgroundColor:"#0009",justifyContent:"flex-end"},
+  sheetCard:{backgroundColor:"#151821",borderTopLeftRadius:16,borderTopRightRadius:16,padding:14,borderWidth:1,borderColor:"#2A2F38"},
+  sheetCardTall:{backgroundColor:"#151821",borderTopLeftRadius:16,borderTopRightRadius:16,padding:14,borderWidth:1,borderColor:"#2A2F38",maxHeight:520},
+  sheetHandle:{width:44,height:4,backgroundColor:"#2A2F38",borderRadius:2,alignSelf:"center",marginBottom:10},
+  sheetTitle:{color:"#fff",fontSize:18,fontWeight:"900",marginBottom:8},
+  sheetItem:{paddingVertical:12,borderBottomWidth:1,borderBottomColor:"#262B35"},
+  sheetItemT:{color:"#cfd6e4",fontSize:16,fontWeight:"800"},
+  cityRow:{flexDirection:"row",alignItems:"center",gap:10,paddingVertical:10,borderBottomWidth:1,borderBottomColor:"#262B35"},
+  cityRowT:{color:"#cfd6e4",fontSize:16,fontWeight:"800"},
+  chk:{width:20,height:20,borderRadius:6,borderWidth:2,borderColor:"#3EC6FF22",alignItems:"center",justifyContent:"center",backgroundColor:"#1A1D23"},
+  chkOn:{borderColor:"#3EC6FF",backgroundColor:"#3EC6FF22"},
+  chkT:{color:"#6A7A8E",fontSize:12,fontWeight:"900"},
+  chkTOn:{color:"#3EC6FF",fontWeight:"900"},
+
+  modalWrap:{position:"absolute",left:0,right:0,top:0,bottom:0,backgroundColor:"#0D0F13"},
+  modalHead:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",paddingHorizontal:14,paddingTop:6,paddingBottom:6},
+  modalTitle:{color:"#fff",fontSize:20,fontWeight:"900"},
+  modalClose:{color:"#9aa",fontSize:20,fontWeight:"900"},
+  formLabel:{color:"#9aa",marginTop:8,marginBottom:6,fontWeight:"700"},
+  dualRow:{flexDirection:"row",gap:8,marginBottom:6},
+  duo:{flex:1},
+  dualWrap:{flexDirection:"row",flexWrap:"wrap",justifyContent:"space-between",rowGap:8,marginBottom:4},
+  formChipHalf:{width:"49%",height:50,paddingHorizontal:12,borderWidth:2,borderRadius:12,alignItems:"center"},
+  formChipT:{fontWeight:"900",fontSize:14},
+  picker:{height:44,paddingHorizontal:12,borderRadius:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",alignItems:"center",justifyContent:"center"},
+  pickerT:{color:"#cfd6e4",fontWeight:"800"},
+  input:{backgroundColor:"#151821",color:"#fff",padding:12,borderRadius:10,borderWidth:1,borderColor:"#2A2F38",marginBottom:8},
+
+  durationGrid:{flexDirection:"row",flexWrap:"wrap",justifyContent:"space-between",rowGap:8,marginBottom:2},
+  timeChipGrid:{width:"23%",alignItems:"center",paddingVertical:10,borderRadius:10,backgroundColor:"#1A1D23",borderWidth:1,borderColor:"#2A2F38"},
+  timeChipGridOn:{backgroundColor:"#3A3F4A"},
+  timeChipGridT:{color:"#9aa",fontWeight:"800",fontSize:12},
+  timeChipGridTOn:{color:"#fff"},
+
+  primaryBtn:{backgroundColor:"#3EC6FF",padding:12,borderRadius:10,flex:1},
+  primaryText:{color:"#0D0F13",textAlign:"center",fontWeight:"900"},
+  secondaryBtn:{backgroundColor:"#3EC6FF22",borderColor:"#3EC6FF",borderWidth:1,padding:12,borderRadius:10,flex:1},
+  secondaryText:{color:"#3EC6FF",textAlign:"center",fontWeight:"800"},
+
+  noteBox:{marginTop:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",borderRadius:12,padding:12,marginHorizontal:12},
+  note:{color:"#cbd3df",textAlign:"center"},
+});

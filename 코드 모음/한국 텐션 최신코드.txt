@@ -1,11 +1,10 @@
-// App.js — TENtion KR v1.4.6 (Snack-ready, single file)
-// - 4카테고리 한 줄 고정 그리드
-// - 거리/시간 스텝퍼 확대 + 우측 "정렬 기준" 버튼(작게)
-// - 지역선택 칩 여백/테두리 정리
-// - 카드 컴팩트화(여러 슬롯 동시 노출 ↑)
-// - Details 풀스크린 오버레이 + 가독성 개선
-// - 생성모달 카테고리 칩 텍스트 중앙정렬
-// - 외부 라이브러리 의존성 없음(Expo Snack OK)
+// App.js — TENtion KR v1.5.0 (Web/Mobile MVP 안정판)
+// ✅ 1:1 완전 제거
+// ✅ 인원 제한(max/isFull/Full/disabled) 완전 제거
+// ✅ 지역선택 Set 사용 제거 → 배열로 변경(반응성/버그 해결)
+// ✅ 체크인 버튼 “항상 반응” (ended/live/upcoming 모두 Alert 처리)
+// ✅ 생성 후 “무조건 보이게” (카테고리/지역/스크롤 자동 세팅)
+// ✅ Expo Snack OK / RN Web OK (외부 라이브러리 없음)
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,12 +37,12 @@ const T = {
   share:"공유",
   back:"← 뒤로",
   safetyNote:"밝은 공공장소에서 만나고, DM 금지. 10분 내 결정.",
-  cat:{Dating:"데이트 1:1", Friends:"친구 1:1", Workout:"운동 1:1", Talk:"토크 1:1"},
+  cat:{Dating:"Vibe", Friends:"Friends", Workout:"Workout", Talk:"Try"},
   host:{me:"내가 주최", plat:"TENtion 주최"},
-  createTitle:"10분 슬롯 만들기",
+  createTitle:"슬롯 만들기",
   category:"카테고리",
   hostLabel:"주최",
-  pickCityTime:"도시 & 시간",
+  pickCityTime:"도시",
   startEnd:"시작/종료 (24H)",
   title:"제목",
   titlePH:"슬롯 제목",
@@ -59,6 +58,7 @@ const T = {
   apply:"적용",
   reset:"초기화",
   regionMore:"지역선택 ▾",
+  ok:"OK",
 };
 
 /* =========================
@@ -68,10 +68,10 @@ const KM_STEP = 1;
 const DUR_OPTS = [10,20,30,40,50,60];
 
 const CATS = [
-  {key:"Dating",  label:"Vibe ",  icon:"💞", color:"#FF5CAB"},
-  {key:"Friends", label:"친구 ",    icon:"🤝", color:"#2EE778"},
-  {key:"Workout", label:"운동 ",    icon:"💪", color:"#FFA23B"},
-  {key:"Talk",    label:"Try ",    icon:"💬", color:"#6AAEFF"},
+  {key:"Dating",  label:"Vibe",    icon:"💞", color:"#FF5CAB"},
+  {key:"Friends", label:"Friends", icon:"🤝", color:"#2EE778"},
+  {key:"Workout", label:"Workout", icon:"💪", color:"#FFA23B"},
+  {key:"Talk",    label:"Try",     icon:"🧠", color:"#6AAEFF"},
 ];
 
 // 대표/전국
@@ -137,7 +137,11 @@ function tasksFor(slot){
 }
 
 /* ---- countdown helpers ---- */
-function buildTodayTs(hm){ const now=new Date(); const [h,m]=hm.split(":").map(Number); return new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0).getTime(); }
+function buildTodayTs(hm){
+  const now=new Date();
+  const [h,m]=hm.split(":").map(Number);
+  return new Date(now.getFullYear(),now.getMonth(),now.getDate(),h,m,0).getTime();
+}
 function getState(nowMs, startHM, durMin){
   const start = buildTodayTs(startHM);
   const end   = start + durMin*60*1000;
@@ -145,7 +149,14 @@ function getState(nowMs, startHM, durMin){
   if(nowMs <= end)  return {state:"live", secsToStart:0};
   return {state:"ended", secsToStart:0};
 }
-function fmtHMS(secs){ const h=Math.floor(secs/3600); const m=Math.floor((secs%3600)/60); const s=secs%60; return `${pad2(h)}:${pad2(m)}:${pad2(s)}`; }
+function fmtHMS(secs){
+  const h=Math.floor(secs/3600);
+  const m=Math.floor((secs%3600)/60);
+  const s=secs%60;
+  return `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+}
+const uniq = (arr)=> Array.from(new Set(arr));
+const includes = (arr, v)=> (arr||[]).includes(v);
 
 /* =========================
    Auto Slot Generator (KR)
@@ -169,12 +180,23 @@ function addMin(startHM, delta){
 // 장소 샘플
 const KR_PLACES = {
   SEO:["성수 카페거리","한강 뚝섬","잠실 롯데월드몰","강남역 로비","홍대 놀이터","여의도 공원"],
-  GN:["삼성역 코엑스몰","선릉 공원","역삼 로비"], HD:["홍대입구 9번","합정 메세나폴리스","망원 한강"], JS:["석촌호수","잠실새내","잠실운동장 앞"], GS:["성수연방","서울숲 벤치","건대입구 로터리"], YD:["IFC몰 로비","63빌딩 앞","여의서로 산책로"],
-  ICN:["송도 센트럴파크","인천대공원"], GGN:["일산 호수공원","의정부역 광장"], GGS:["분당 정자역","판교 알파돔"], SUW:["수원역 AK앞","광교 호수공원"],
-  BUS:["광안리 해변","해운대 블루라인"], DG:["동성로 거리","수성못"], DJ:["둔산 타임월드"], GJ:["충장로"], USN:["태화강 국가정원"]
+  GN:["삼성역 코엑스몰","선릉 공원","역삼 로비"],
+  HD:["홍대입구 9번","합정 메세나폴리스","망원 한강"],
+  JS:["석촌호수","잠실새내","잠실운동장 앞"],
+  GS:["성수연방","서울숲 벤치","건대입구 로터리"],
+  YD:["IFC몰 로비","63빌딩 앞","여의서로 산책로"],
+  ICN:["송도 센트럴파크","인천대공원"],
+  GGN:["일산 호수공원","의정부역 광장"],
+  GGS:["분당 정자역","판교 알파돔"],
+  SUW:["수원역 AK앞","광교 호수공원"],
+  BUS:["광안리 해변","해운대 블루라인"],
+  DG:["동성로 거리","수성못"],
+  DJ:["둔산 타임월드"],
+  GJ:["충장로"],
+  USN:["태화강 국가정원"]
 };
 
-const TALK_TOPICS = ["멘탈/회복","자기계발","책 토크","창업/비즈","마케팅","성장통","커리어","대인관계","여행","스포츠","OTT/영화","MBTI","연애상담"];
+const TRY_TOPICS = ["멘탈/회복","자기계발","책 토크","창업/비즈","마케팅","성장통","커리어","대인관계","여행","스포츠","OTT/영화","MBTI","연애상담"];
 const AGE_BUCKETS = [[18,24],[25,34],[35,44],[45,54]];
 
 function generateKRSlots({ cityCode="GN", band="저녁", count=20 }){
@@ -191,21 +213,22 @@ function generateKRSlots({ cityCode="GN", band="저녁", count=20 }){
     const start = addMin(anchor, 10 * Math.floor(Math.random()*18)); // 3시간 범위
     const end = addMin(start, d);
     const tb = guessBandFromStart(start);
-    const topic = (type==="Talk") ? TALK_TOPICS[Math.floor(Math.random()*TALK_TOPICS.length)] : null;
+    const topic = (type==="Talk") ? TRY_TOPICS[Math.floor(Math.random()*TRY_TOPICS.length)] : null;
     const age  = AGE_BUCKETS[Math.floor(Math.random()*AGE_BUCKETS.length)];
     const minsLeft = Math.max(5, Math.floor(spanMins(start,end)*0.8));
 
     list.push({
       id: Date.now()+Math.floor(Math.random()*1e6),
       type, city:cityCode, band:tb,
-      title: `${place} • ${type==="Talk" ? (topic||"Talk") : cityName(cityCode)}`,
+      title: `${place} • ${type==="Talk" ? (topic||"Try") : T.cat[type]}`,
       start, end, totalMins: spanMins(start,end),
       minsLeft,
-      attendees:[], max:2,
+      attendees:[], // ✅ 제한 없음 (그냥 리스트)
       desc: (type==="Talk") ? "정직하게, 짧게. 10분 토크." : "가볍게 만나요. 공공장소 필수.",
       proofScore: Math.round(3 + Math.random()*2),
       hostType:"platform",
       ageRange: age,
+      vibe: DEFAULT_VIBES[Math.floor(Math.random()*DEFAULT_VIBES.length)]
     });
   }
   return list.sort((a,b)=>b.id-a.id);
@@ -227,13 +250,18 @@ function Root(){
   const [dur,setDur]=useState(10);
   const [sortBy,setSortBy]=useState(t.sortOpt[0]);
 
-  // 시간대(1줄 그리드)
+  // 시간대
   const [band,setBand]=useState(t.timeBands[4]); // 저녁
 
-  // 지역 선택(다중): 기본 HOT5
-  const [selectedCities,setSelectedCities]=useState(new Set(HOT5));
+  // ✅ 지역 선택: Set -> Array (버그/반응성 해결)
+  const [selectedCities,setSelectedCities]=useState(HOT5);
+
   const toggleCity=(code)=>{
-    setSelectedCities(prev=>{ const s=new Set(prev); s.has(code)?s.delete(code):s.add(code); return s; });
+    setSelectedCities(prev=>{
+      const has = prev.includes(code);
+      const next = has ? prev.filter(x=>x!==code) : [...prev, code];
+      return next;
+    });
   };
 
   const [showCitySheet,setShowCitySheet]=useState(false);
@@ -242,96 +270,167 @@ function Root(){
   const [search,setSearch]=useState("");
   const scrollRef=useRef(null);
 
-  // slots by filters
+  // slots
   const [slots,setSlots]=useState([]);
+
+  // 초기/필터 기반 생성
   useEffect(()=>{
-    const cities = Array.from(selectedCities);
-    const base   = cities.length? cities : HOT5;
-    const per    = Math.max(10, Math.floor(48 / base.length));
-    const packs  = base.flatMap(code=>generateKRSlots({ cityCode:code, band, count:per }));
+    const base = selectedCities.length ? selectedCities : HOT5;
+    const per  = Math.max(10, Math.floor(48 / base.length));
+    const packs = base.flatMap(code=>generateKRSlots({ cityCode:code, band, count:per }));
     setSlots(packs.slice(0,72));
-    setSortBy(t.sortOpt[0]);
-  },[band,selectedCities]);
+    // ✅ 마케터가 정렬 바꾼 상태 유지 위해 sortBy 리셋 X
+  },[band, selectedCities]);
 
   const resetHome=()=>{
-    setActiveCat(""); setRadius(5); setDur(10);
-    setSortBy(t.sortOpt[0]); setSearch(""); setMyOnly(false);
+    setActiveCat("");
+    setRadius(5);
+    setDur(10);
+    setSortBy(t.sortOpt[0]);
+    setSearch("");
+    setMyOnly(false);
+    setSelectedCities(HOT5);
     scrollRef.current?.scrollTo({y:0,animated:true});
   };
 
   const list = useMemo(()=>{
     let arr = slots.slice();
+
     if(activeCat) arr = arr.filter(s=>s.type===activeCat);
-    if(selectedCities.size) arr = arr.filter(s=> selectedCities.has(s.city));
-    arr = arr.filter(s => s.totalMins>=dur);
-    if(myOnly) arr = arr.filter(s => s.attendees.includes(ME) || s.hostType==="me");
+
+    const cities = selectedCities.length ? selectedCities : HOT5;
+    arr = arr.filter(s=> includes(cities, s.city));
+
+    arr = arr.filter(s => (s.totalMins||10) >= dur);
+
+    if(myOnly) arr = arr.filter(s => includes(s.attendees, ME) || s.hostType==="me");
+
     if(search.trim()){
       const q=search.trim().toLowerCase();
       arr = arr.filter(s=>{
-        const txt = `${s.title} ${s.type} ${cityName(s.city)}`.toLowerCase();
+        const txt = `${s.title} ${s.type} ${cityName(s.city)} ${s.band}`.toLowerCase();
         return txt.includes(q);
       });
     }
+
     if(sortBy===t.sortOpt[0]) arr.sort((a,b)=>(a.minsLeft||1e9)-(b.minsLeft||1e9)); // 마감임박
     if(sortBy===t.sortOpt[1]) arr.sort((a,b)=>b.id-a.id);                            // 최신
     if(sortBy===t.sortOpt[3]) arr.sort((a,b)=>(b.proofScore||0)-(a.proofScore||0));  // 평점
+
     return arr;
   },[slots,activeCat,dur,sortBy,selectedCities,search,myOnly]);
 
   const [screen,setScreen]=useState("home");
   const [selId,setSelId]=useState(null);
 
+  // ✅ 체크인: 언제든 반응 / 제한 없음
   const join=(slot)=>{
-    if(slot.attendees.includes(ME)) return;
-    if(slot.attendees.length>=slot.max){ Alert.alert("Full","This slot is already full."); return; }
-    const next={...slot, attendees:[...slot.attendees,ME]};
-    setSlots(prev=>prev.map(s=>s.id===slot.id?next:s));
-    Alert.alert("체크인 완료"," ");
+    if(!slot) return;
+
+    const {state} = getState(nowMs, slot.start, slot.totalMins || 10);
+    if(state==="ended"){
+      Alert.alert("종료됨","이미 종료된 모임이야.");
+      return;
+    }
+    if(state==="live"){
+      Alert.alert("진행중","이미 시작된 모임이야. 그래도 합류는 가능해(테스트용).");
+      // 계속 진행 허용
+    }
+
+    setSlots(prev=>prev.map(s=>{
+      if(s.id!==slot.id) return s;
+      const already = includes(s.attendees, ME);
+      const nextAtt = already ? s.attendees : [...(s.attendees||[]), ME];
+      return {...s, attendees: nextAtt};
+    }));
+
+    Alert.alert("체크인","완료");
   };
+
   const leave=(slot)=>{
-    if(!slot.attendees.includes(ME)) return;
-    setSlots(prev=>prev.map(s=>s.id===slot.id?{...s,attendees:s.attendees.filter(x=>x!==ME)}:s));
+    if(!slot) return;
+    setSlots(prev=>prev.map(s=>{
+      if(s.id!==slot.id) return s;
+      return {...s, attendees:(s.attendees||[]).filter(x=>x!==ME)};
+    }));
+    Alert.alert("나가기","완료");
   };
+
   const shareSlot=async(slot)=>{
-    try{ await Share.share({message:`TENtion • ${slot.title}\n${slot.type} @ ${cityName(slot.city)} • ${slot.band}`}); }catch(e){}
+    if(!slot) return;
+    try{
+      await Share.share({message:`TENtion • ${slot.title}\n${T.cat[slot.type]||slot.type} @ ${cityName(slot.city)} • ${slot.band}`});
+    }catch(e){}
   };
 
   // Create form
   const [createOpen,setCreateOpen]=useState(false);
-  const [form,setForm]=useState({ cat:"", host:T.host.me, city:"GN", start:"18:00", end:"18:10", dur:10, title:"", desc:"" });
+  const [form,setForm]=useState({
+    cat:"",
+    host:T.host.me,
+    city:"GN",
+    start:"18:00",
+    end:"18:10",
+    dur:10,
+    title:"",
+    desc:"",
+    _cityPick:false
+  });
 
   const openCreate=()=>{
-    const firstSel = Array.from(selectedCities)[0] || "GN";
-    setForm(f=>({ ...f, cat: activeCat || "", city: firstSel, dur:10, start:"18:00", end:"18:10", _cityPick:false }));
+    const firstSel = selectedCities[0] || "GN";
+    setForm(f=>({
+      ...f,
+      cat: activeCat || "",
+      city: firstSel,
+      dur:10,
+      start:"18:00",
+      end:"18:10",
+      _cityPick:false
+    }));
     setCreateOpen(true);
   };
 
+  // ✅ 생성 후 "무조건 보이게" (지역/카테고리/스크롤)
   const createSlot=()=>{
     const mins = clamp(form.dur,10,100);
-    const st = parseHM(form.start)??(18*60);
-    const enHM = (st + mins)%1440;
+    const st = parseHM(form.start) ?? (18*60);
+    const enHM = (st + mins) % 1440;
     const end = `${pad2(Math.floor(enHM/60))}:${pad2(enHM%60)}`;
     const mappedHost = (form.host===T.host.plat) ? "platform" : "me";
 
+    const cat = form.cat || "Talk";
+    const city = form.city || "GN";
+
     const s = {
       id: Date.now()+Math.floor(Math.random()*1e6),
-      type: form.cat || "Talk",
+      type: cat,
       hostType: mappedHost,
-      city: form.city,
+      city,
       band: guessBandFromStart(form.start),
-      title: form.title || defaultTitle(form.cat || "Talk"),
+      title: (form.title || defaultTitle(cat)).trim(),
       start: form.start,
       end,
       totalMins: mins,
       minsLeft: Math.max(5, Math.floor(mins*0.8)),
-      attendees: [], max:2, desc: form.desc || defaultDesc(form.cat || "Talk"),
+      attendees: [],
+      desc: (form.desc || defaultDesc(cat)).trim(),
       proofScore:0,
       vibe: DEFAULT_VIBES[Math.floor(Math.random()*DEFAULT_VIBES.length)]
     };
-    setSlots(prev=>[s,...prev]);
+
+    setSlots(prev=>[s, ...prev]);
     setCreateOpen(false);
-    setActiveCat(form.cat || "");
-    scrollRef.current?.scrollTo({y:0,animated:true});
+
+    // ✅ 생성 즉시 화면에 보이도록 필터 강제
+    setActiveCat(cat);
+    setSelectedCities(prev=>{
+      const next = prev.includes(city) ? prev : [...prev, city];
+      return uniq(next);
+    });
+
+    setTimeout(()=>scrollRef.current?.scrollTo({y:0,animated:true}), 50);
+    Alert.alert("생성 완료","피드 최상단에 추가됨");
   };
 
   return (
@@ -341,6 +440,7 @@ function Root(){
         <TouchableOpacity onPress={resetHome} style={{flexDirection:"row",alignItems:"flex-end"}} hitSlop={10}>
           <Text style={styles.logo}>{t.app}</Text>
         </TouchableOpacity>
+
         <View style={{flexDirection:"row",gap:8,alignItems:"center"}}>
           <TouchableOpacity
             style={[styles.secondarySm, myOnly && styles.secondarySmOn]}
@@ -348,6 +448,7 @@ function Root(){
           >
             <Text style={[styles.secondarySmT, myOnly && styles.secondarySmTOn]}>{t.my}</Text>
           </TouchableOpacity>
+
           <TouchableOpacity style={styles.primarySm} onPress={openCreate}>
             <Text style={styles.primarySmT}>{t.create}</Text>
           </TouchableOpacity>
@@ -361,18 +462,20 @@ function Root(){
         overScrollMode="never"
         keyboardShouldPersistTaps="handled"
       >
-
-        {/* CATEGORIES — 1줄 고정 그리드(4칩) */}
+        {/* CATEGORIES — 1줄 고정 그리드 */}
         <View style={styles.catRow}>
           {CATS.map(c=>{
             const on = activeCat===c.key;
             return (
-              <TouchableOpacity key={c.key}
+              <TouchableOpacity
+                key={c.key}
                 onPress={()=>setActiveCat(p=>p===c.key?"":c.key)}
                 style={[
-                  styles.catChip, {borderColor:c.color},
+                  styles.catChip,
+                  {borderColor:c.color},
                   on && {backgroundColor:c.color+"22"}
-                ]}>
+                ]}
+              >
                 <Text style={[styles.catText,{color:c.color}]} numberOfLines={1} ellipsizeMode="tail">
                   {c.icon} {c.label}
                 </Text>
@@ -381,41 +484,55 @@ function Root(){
           })}
         </View>
 
-        {/* Row: distance • duration • sort (정렬 기준) */}
+        {/* Row: distance • duration • sort */}
         <View style={styles.row3}>
-          <Stepper label={t.distance} value={radius}
-                   onMinus={()=>setRadius(clamp(radius-KM_STEP,1,50))}
-                   onPlus={()=>setRadius(clamp(radius+KM_STEP,1,50))} />
-          <Stepper label={t.duration} value={dur} step={10}
-                   onMinus={()=>setDur(clamp(dur-10,10,100))}
-                   onPlus={()=>setDur(clamp(dur+10,10,100))} />
+          <Stepper
+            label={t.distance}
+            value={radius}
+            onMinus={()=>setRadius(clamp(radius-KM_STEP,1,50))}
+            onPlus={()=>setRadius(clamp(radius+KM_STEP,1,50))}
+          />
+          <Stepper
+            label={t.duration}
+            value={dur}
+            step={10}
+            onMinus={()=>setDur(clamp(dur-10,10,100))}
+            onPlus={()=>setDur(clamp(dur+10,10,100))}
+          />
           <TouchableOpacity style={styles.sortBtn} onPress={()=>setShowSortSheet(true)}>
             <Text style={styles.sortBtnT} numberOfLines={1}>{t.sort}</Text>
           </TouchableOpacity>
         </View>
 
-        {/* 1줄: 시간대 */}
+        {/* 시간대 */}
         <View style={styles.bandRow}>
           {T.timeBands.map(b=>(
-            <TouchableOpacity key={b}
+            <TouchableOpacity
+              key={b}
               onPress={()=>setBand(b)}
-              style={[styles.bandChip, band===b && styles.bandChipOn]}>
+              style={[styles.bandChip, band===b && styles.bandChipOn]}
+            >
               <Text style={[styles.bandChipT, band===b && styles.bandChipTOn]} numberOfLines={1}>{b}</Text>
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* 1줄: 핫 지역 5 + 지역선택 */}
+        {/* 핫 지역 5 + 지역선택 */}
         <View style={styles.hotRow}>
-          {HOT5.map(code=>(
-            <TouchableOpacity key={code}
-              onPress={()=>toggleCity(code)}
-              style={[styles.cityChip, selectedCities.has(code) && styles.cityChipActive]}>
-              <Text style={[styles.cityChipT, selectedCities.has(code) && styles.cityChipTActive]} numberOfLines={1}>
-                {cityName(code)}
-              </Text>
-            </TouchableOpacity>
-          ))}
+          {HOT5.map(code=>{
+            const on = selectedCities.includes(code);
+            return (
+              <TouchableOpacity
+                key={code}
+                onPress={()=>toggleCity(code)}
+                style={[styles.cityChip, on && styles.cityChipActive]}
+              >
+                <Text style={[styles.cityChipT, on && styles.cityChipTActive]} numberOfLines={1}>
+                  {cityName(code)}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
           <TouchableOpacity style={styles.moreChip} onPress={()=>setShowCitySheet(true)}>
             <Text style={styles.moreChipT} numberOfLines={1}>{T.regionMore}</Text>
           </TouchableOpacity>
@@ -423,7 +540,8 @@ function Root(){
 
         {/* SEARCH */}
         <TextInput
-          value={search} onChangeText={setSearch}
+          value={search}
+          onChangeText={setSearch}
           placeholder={t.searchPH}
           placeholderTextColor="#7a8596"
           style={styles.search}
@@ -438,25 +556,36 @@ function Root(){
         )}
 
         {list.map(s=>(
-          <Card key={s.id} slot={s}
+          <Card
+            key={s.id}
+            slot={s}
             nowMs={nowMs}
             onDetails={()=>{ setSelId(s.id); setScreen("detail"); }}
             onPrimary={()=> join(s)}
           />
         ))}
 
-        <View style={styles.noteBox}><Text style={styles.note}>{t.safetyNote}</Text></View>
+        <View style={styles.noteBox}>
+          <Text style={styles.note}>{t.safetyNote}</Text>
+        </View>
       </ScrollView>
 
-      {/* SHEETS */}
-      {showSortSheet && <ActionSheet title={t.sort} value={sortBy} options={t.sortOpt}
-        onPick={(v)=>{ setSortBy(v); setShowSortSheet(false); }} onCancel={()=>setShowSortSheet(false)} />}
+      {/* SORT SHEET */}
+      {showSortSheet && (
+        <ActionSheet
+          title={t.sort}
+          value={sortBy}
+          options={t.sortOpt}
+          onPick={(v)=>{ setSortBy(v); setShowSortSheet(false); }}
+          onCancel={()=>setShowSortSheet(false)}
+        />
+      )}
 
-      {/* 다중 지역 선택 시트 */}
+      {/* MULTI CITY SHEET */}
       {showCitySheet && (
         <MultiCitySheet
-          currentSet={selectedCities}
-          onApply={(codes)=>{ setSelectedCities(new Set(codes)); setShowCitySheet(false); }}
+          currentList={selectedCities}
+          onApply={(codes)=>{ setSelectedCities(codes); setShowCitySheet(false); }}
           onClose={()=>setShowCitySheet(false)}
         />
       )}
@@ -464,7 +593,8 @@ function Root(){
       {/* CREATE */}
       {createOpen && (
         <CreateModal
-          form={form} setForm={setForm}
+          form={form}
+          setForm={setForm}
           onClose={()=>setCreateOpen(false)}
           onCreate={createSlot}
         />
@@ -507,10 +637,9 @@ function Stepper({label,value,step=1,onMinus,onPlus}){
 
 function Card({slot,onDetails,onPrimary,nowMs}){
   if(!slot) return null;
-  const {state, secsToStart} = getState(nowMs, slot.start, slot.totalMins);
-  const tint  = tintByMins(slot.minsLeft);
-  const ratio = slot.totalMins ? Math.max(0, slot.minsLeft)/slot.totalMins : 0;
-  const isFull= slot.attendees.length>=slot.max;
+  const {state, secsToStart} = getState(nowMs, slot.start, slot.totalMins || 10);
+  const tint  = tintByMins(slot.minsLeft || 10);
+  const ratio = (slot.totalMins || 10) ? Math.max(0, (slot.minsLeft||0))/(slot.totalMins||10) : 0;
 
   const rightBadge = (
     state==="upcoming"
@@ -524,19 +653,18 @@ function Card({slot,onDetails,onPrimary,nowMs}){
     <View style={[styles.card,{borderColor:colorFor(slot.type)}]}>
       <View style={styles.cardHead}>
         <Text style={[styles.cardType,{color:colorFor(slot.type)}]} numberOfLines={1}>
-          {iconFor(slot.type)} {slot.type}  •  {cityName(slot.city)}  •  {slot.band}
+          {iconFor(slot.type)} {T.cat[slot.type] || slot.type}  •  {cityName(slot.city)}  •  {slot.band}
         </Text>
         <View style={{flexDirection:"row",gap:6,alignItems:"center"}}>
           {rightBadge}
-          {isFull && <MiniBadge text="Full" tone="#FF6B6B"/>}
         </View>
       </View>
 
       <Text style={styles.cardTitle} numberOfLines={2}>{slot.title}</Text>
       <Text style={styles.cardLine}>
-        🕒 {fmt24(slot.start)} ~ {fmt24(slot.end)} • {Math.max(10,slot.totalMins)}분 × 1 • <Text style={tint}>{toTimeString(slot.minsLeft)}</Text>
+        🕒 {fmt24(slot.start)} ~ {fmt24(slot.end)} • {Math.max(10,slot.totalMins||10)}분 • <Text style={tint}>{toTimeString(slot.minsLeft||0)}</Text>
       </Text>
-      <Text style={styles.cardLine}>👥 {slot.attendees.length}/{slot.max} • {stars(slot.proofScore)}</Text>
+      <Text style={styles.cardLine}>👥 {slot.attendees?.length || 0}명 • {stars(slot.proofScore)}</Text>
 
       <View style={styles.progOuter}>
         <View style={[styles.progInner,{width:`${Math.max(4,ratio*100)}%`, backgroundColor:tint.color||"#6AAEFF"}]} />
@@ -545,8 +673,12 @@ function Card({slot,onDetails,onPrimary,nowMs}){
       <Text style={styles.cardDesc} numberOfLines={2}>{slot.desc}</Text>
 
       <View style={styles.cardFoot}>
-        <TouchableOpacity style={styles.outBtn} onPress={onDetails}><Text style={styles.outBtnT}>{T.details}</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.inBtn, isFull && {opacity:0.5}]} onPress={onPrimary} disabled={isFull || state!=="upcoming"}>
+        <TouchableOpacity style={styles.outBtn} onPress={onDetails}>
+          <Text style={styles.outBtnT}>{T.details}</Text>
+        </TouchableOpacity>
+
+        {/* ✅ 항상 눌림 */}
+        <TouchableOpacity style={styles.inBtn} onPress={onPrimary}>
           <Text style={styles.inBtnT}>{T.checkin}</Text>
         </TouchableOpacity>
       </View>
@@ -556,9 +688,8 @@ function Card({slot,onDetails,onPrimary,nowMs}){
 
 function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
   if(!slot) return null;
-  const joined = slot.attendees.includes(ME);
-  const isFull = slot.attendees.length>=slot.max && !joined;
-  const {state, secsToStart} = getState(nowMs, slot.start, slot.totalMins);
+  const joined = (slot.attendees||[]).includes(ME);
+  const {state, secsToStart} = getState(nowMs, slot.start, slot.totalMins || 10);
   const labelTone = state==="live" ? "#2EE778" : (state==="upcoming" ? "#3EC6FF" : "#666");
   const labelText = state==="upcoming" ? `⏳ ${fmtHMS(secsToStart)}` : (state==="live" ? T.live : T.ended);
 
@@ -567,12 +698,12 @@ function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
   const cityLabel = cityName(slot.city);
   const dateStr = formatKRDate(new Date());
   const startAmPm = toAmPm(slot.start);
-  const minText = slot.totalMins>=20 ? `최소 ${slot.totalMins}분` : `${slot.totalMins}분`;
+  const minText = (slot.totalMins||10)>=20 ? `최소 ${slot.totalMins}분` : `${slot.totalMins||10}분`;
   const ageText = slot.ageRange ? `${slot.ageRange[0]}–${slot.ageRange[1]}세` : "전 연령";
 
   const placeTitle = (slot.title||"").split(" • ")[0] || cityLabel;
-  const tint   = tintByMins(slot.minsLeft);
-  const ratio  = slot.totalMins ? Math.max(0, slot.minsLeft)/slot.totalMins : 0;
+  const tint   = tintByMins(slot.minsLeft || 0);
+  const ratio  = (slot.totalMins||10) ? Math.max(0, (slot.minsLeft||0))/(slot.totalMins||10) : 0;
 
   return(
     <View style={styles.detailWrap}>
@@ -582,16 +713,24 @@ function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        <TouchableOpacity onPress={onBack} hitSlop={12}><Text style={styles.back}>{T.back}</Text></TouchableOpacity>
+        <TouchableOpacity onPress={onBack} hitSlop={12}>
+          <Text style={styles.back}>{T.back}</Text>
+        </TouchableOpacity>
 
         <View style={[styles.detailsBox,{borderColor:colorFor(slot.type)}]}>
           {/* 헤더 */}
           <View style={styles.badgeRow}>
-            <MiniBadge text={`${iconFor(slot.type)} ${slot.type}`} tone={colorFor(slot.type)} />
+            <MiniBadge text={`${iconFor(slot.type)} ${T.cat[slot.type] || slot.type}`} tone={colorFor(slot.type)} />
             <MiniBadge text={labelText} tone={labelTone} />
           </View>
-          <Text style={[styles.detailsTitle,{color:colorFor(slot.type)}]} numberOfLines={3}>{slot.title}</Text>
-          <Text style={[styles.subBy]} numberOfLines={1}>💎 Hosted by <Text style={{fontWeight:"900"}}>{hostLabel}</Text></Text>
+
+          <Text style={[styles.detailsTitle,{color:colorFor(slot.type)}]} numberOfLines={3}>
+            {slot.title}
+          </Text>
+
+          <Text style={[styles.subBy]} numberOfLines={1}>
+            💎 Hosted by <Text style={{fontWeight:"900"}}>{hostLabel}</Text>
+          </Text>
 
           {/* 핵심 요약 */}
           <View style={styles.infoBlock}>
@@ -599,7 +738,7 @@ function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
               {bandEmoji(slot.band)}  {slot.band} — <Text style={{fontWeight:"900"}}>Start {startAmPm}</Text> • Duration <Text style={{fontWeight:"900"}}>{minText}</Text>
             </Text>
             <Text style={styles.infoLine}>📅 날짜: {dateStr} — {cityLabel}</Text>
-            <Text style={styles.infoLine}>👥 인원 {slot.max||2}명  🎯 분위기 {vibe}</Text>
+            <Text style={styles.infoLine}>👥 참여자 {slot.attendees?.length || 0}명  🎯 분위기 {vibe}</Text>
             <Text style={styles.infoLine}>🔢 연령대 {ageText}</Text>
           </View>
 
@@ -611,33 +750,46 @@ function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
             ))}
           </View>
 
-          {/* 장소/좌표 */}
+          {/* 장소 */}
           <View style={styles.section}>
             <Text style={styles.secTitle}>📍 장소</Text>
             <Text style={styles.placeLine}>{placeTitle} • {cityLabel}</Text>
           </View>
 
-          {/* 진행/남은시간 바 */}
+          {/* 진행 */}
           <View style={styles.section}>
             <Text style={styles.secTitle}>⏱️ 진행상황</Text>
-            <Text style={styles.cardLine}>🕒 {fmt24(slot.start)} ~ {fmt24(slot.end)} • <Text style={tint}>{toTimeString(slot.minsLeft)}</Text></Text>
-            <View style={styles.progOuter}><View style={[styles.progInner,{width:`${Math.max(4,ratio*100)}%`, backgroundColor:tint.color||"#6AAEFF"}]} /></View>
+            <Text style={styles.cardLine}>
+              🕒 {fmt24(slot.start)} ~ {fmt24(slot.end)} • <Text style={tint}>{toTimeString(slot.minsLeft||0)}</Text>
+            </Text>
+            <View style={styles.progOuter}>
+              <View style={[styles.progInner,{width:`${Math.max(4,ratio*100)}%`, backgroundColor:tint.color||"#6AAEFF"}]} />
+            </View>
           </View>
 
-          {/* 운영정책 */}
+          {/* 정책 */}
           <View style={styles.policyBox}>
             <Text style={styles.secTitle}>✅ TENtion 방침</Text>
             <Text style={styles.policyLine}>• 공공장소 only  • DM 금지  • 언제든 퇴장 가능  • 예의 필수  • 결제 없음</Text>
           </View>
 
-          {/* 액션버튼 */}
+          {/* 액션 */}
           <View style={{flexDirection:"row",gap:10,marginTop:12}}>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={onShare}><Text style={styles.secondaryText}>{T.share}</Text></TouchableOpacity>
-            {!joined && !isFull && state==="upcoming" && (
-              <TouchableOpacity style={styles.primaryBtn} onPress={onJoin}><Text style={styles.primaryText}>{T.checkin}</Text></TouchableOpacity>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={onShare}>
+              <Text style={styles.secondaryText}>{T.share}</Text>
+            </TouchableOpacity>
+
+            {!joined && (
+              <TouchableOpacity style={styles.primaryBtn} onPress={onJoin}>
+                <Text style={styles.primaryText}>{T.checkin}</Text>
+              </TouchableOpacity>
             )}
-            {joined && state!=="ended" && (
-              <TouchableOpacity style={[styles.secondaryBtn,{borderColor:"#FF5A5A",backgroundColor:"#FF5A5A22"}]} onPress={onLeave}>
+
+            {joined && (
+              <TouchableOpacity
+                style={[styles.secondaryBtn,{borderColor:"#FF5A5A",backgroundColor:"#FF5A5A22"}]}
+                onPress={onLeave}
+              >
                 <Text style={[styles.secondaryText,{color:"#FF5A5A"}]}>{T.leave}</Text>
               </TouchableOpacity>
             )}
@@ -648,7 +800,13 @@ function Details({slot,onBack,onShare,onJoin,onLeave,nowMs}){
   );
 }
 
-function MiniBadge({text,tone}){ return(<View style={[styles.miniBadge,{backgroundColor:tone+"22",borderColor:tone}]}><Text style={[styles.miniBadgeT,{color:tone}]}>{text}</Text></View>); }
+function MiniBadge({text,tone}){
+  return(
+    <View style={[styles.miniBadge,{backgroundColor:tone+"22",borderColor:tone}]}>
+      <Text style={[styles.miniBadgeT,{color:tone}]}>{text}</Text>
+    </View>
+  );
+}
 
 function ActionSheet({title,value,options,onPick,onCancel}){
   return(
@@ -657,21 +815,32 @@ function ActionSheet({title,value,options,onPick,onCancel}){
       <View style={styles.sheetCard}>
         <View style={styles.sheetHandle}/>
         <Text style={styles.sheetTitle}>{title}</Text>
-        {options.map(opt=>(<TouchableOpacity key={opt} style={styles.sheetItem} onPress={()=>onPick(opt)}><Text style={[styles.sheetItemT, value===opt && {color:"#3EC6FF"}]}>{opt}{value===opt?" •":""}</Text></TouchableOpacity>))}
-        <TouchableOpacity style={[styles.primaryBtn,{marginTop:6}]} onPress={onCancel}><Text style={styles.primaryText}>OK</Text></TouchableOpacity>
+        {options.map(opt=>(
+          <TouchableOpacity key={opt} style={styles.sheetItem} onPress={()=>onPick(opt)}>
+            <Text style={[styles.sheetItemT, value===opt && {color:"#3EC6FF"}]}>
+              {opt}{value===opt?" •":""}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={[styles.primaryBtn,{marginTop:6}]} onPress={onCancel}>
+          <Text style={styles.primaryText}>{T.ok}</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
 }
 
-/* ✅ Multi City Sheet (복수 선택) */
-function MultiCitySheet({currentSet,onApply,onClose}){
-  const [local,setLocal]=useState(new Set(Array.from(currentSet)));
-  const toggle=(code)=> setLocal(prev=>{ const s=new Set(prev); s.has(code)?s.delete(code):s.add(code); return s; });
-  const apply=()=> onApply(Array.from(local));
-  const reset=()=> setLocal(new Set());
+/* ✅ Multi City Sheet (복수 선택) — Array 기반 */
+function MultiCitySheet({currentList,onApply,onClose}){
+  const [local,setLocal]=useState(uniq(currentList || []));
+  const toggle=(code)=> setLocal(prev=>{
+    const has = prev.includes(code);
+    return has ? prev.filter(x=>x!==code) : [...prev, code];
+  });
+  const apply=()=> onApply(uniq(local));
+  const reset=()=> setLocal([]);
 
-  // 지역별 그룹핑
+  // 그룹
   const groups = {};
   CITY_LIST.forEach(c=>{
     const g = c.region || "기타";
@@ -691,10 +860,12 @@ function MultiCitySheet({currentSet,onApply,onClose}){
             <View key={gr} style={{marginBottom:8}}>
               <Text style={{color:"#9aa",marginBottom:6,fontWeight:"800"}}>{gr}</Text>
               {groups[gr].map(c=>{
-                const on = local.has(c.code);
+                const on = local.includes(c.code);
                 return (
                   <TouchableOpacity key={c.code} style={styles.cityRow} onPress={()=>toggle(c.code)}>
-                    <View style={[styles.chk, on && styles.chkOn]}><Text style={[styles.chkT, on && styles.chkTOn]}>✓</Text></View>
+                    <View style={[styles.chk, on && styles.chkOn]}>
+                      <Text style={[styles.chkT, on && styles.chkTOn]}>✓</Text>
+                    </View>
                     <Text style={[styles.cityRowT, on && {color:"#3EC6FF"}]} numberOfLines={1}>
                       {c.name}
                     </Text>
@@ -706,8 +877,12 @@ function MultiCitySheet({currentSet,onApply,onClose}){
         </ScrollView>
 
         <View style={{flexDirection:"row",gap:8,marginTop:10,justifyContent:"flex-end"}}>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={reset}><Text style={styles.secondaryText}>{T.reset}</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.primaryBtn} onPress={apply}><Text style={styles.primaryText}>{T.apply}</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={reset}>
+            <Text style={styles.secondaryText}>{T.reset}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.primaryBtn} onPress={apply}>
+            <Text style={styles.primaryText}>{T.apply}</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -724,7 +899,9 @@ function CreateModal({form,setForm,onClose,onCreate}){
       <KeyboardAvoidingView style={{flex:1}} behavior={Platform.OS==="ios"?"padding":undefined}>
         <View style={styles.modalHead}>
           <Text style={styles.modalTitle}>{T.createTitle}</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={12}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+          <TouchableOpacity onPress={onClose} hitSlop={12}>
+            <Text style={styles.modalClose}>✕</Text>
+          </TouchableOpacity>
         </View>
 
         <ScrollView
@@ -733,16 +910,19 @@ function CreateModal({form,setForm,onClose,onCreate}){
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Category 2x2 */}
+          {/* Category */}
           <Text style={styles.formLabel}>{T.category}</Text>
           <View style={styles.dualWrap}>
             {CATS.map(c=>(
-              <TouchableOpacity key={c.key}
+              <TouchableOpacity
+                key={c.key}
                 onPress={()=>setForm(f=>({...f,cat:f.cat===c.key?"":c.key}))}
                 style={[
-                  styles.formChipHalf,{borderColor:c.color, justifyContent:"center"},
+                  styles.formChipHalf,
+                  {borderColor:c.color, justifyContent:"center"},
                   form.cat===c.key && {backgroundColor:c.color+"22"}
-                ]}>
+                ]}
+              >
                 <Text style={[styles.formChipT,{color:c.color,textAlign:"center"}]} numberOfLines={1}>
                   {c.icon} {c.label}
                 </Text>
@@ -754,9 +934,11 @@ function CreateModal({form,setForm,onClose,onCreate}){
           <Text style={styles.formLabel}>{T.hostLabel}</Text>
           <View style={styles.dualRow}>
             {[T.host.me, T.host.plat].map(h=>(
-              <TouchableOpacity key={h}
+              <TouchableOpacity
+                key={h}
                 onPress={()=>setForm(f=>({...f,host:h}))}
-                style={[styles.toggle, form.host===h && styles.toggleOn]}>
+                style={[styles.toggle, form.host===h && styles.toggleOn]}
+              >
                 <Text style={[styles.toggleT, form.host===h && styles.toggleTOn]} numberOfLines={1}>{h}</Text>
               </TouchableOpacity>
             ))}
@@ -769,25 +951,38 @@ function CreateModal({form,setForm,onClose,onCreate}){
           </View>
 
           {form._cityPick && (
-            <CitySheetSingle current={form.city}
+            <CitySheetSingle
+              current={form.city}
               onPick={(v)=>setForm(f=>({...f,city:v,_cityPick:false}))}
-              onClose={()=>setForm(f=>({...f,_cityPick:false}))}/>
+              onClose={()=>setForm(f=>({...f,_cityPick:false}))}
+            />
           )}
 
           {/* Start/End */}
           <Text style={styles.formLabel}>{T.startEnd}</Text>
           <View style={styles.dualRow}>
-            <TextInput style={[styles.input,styles.duo]} placeholder="HH:MM" placeholderTextColor="#738"
-              value={form.start} onChangeText={t=>setForm(f=>({...f,start:t}))}/>
-            <TextInput style={[styles.input,styles.duo]} placeholder="HH:MM" placeholderTextColor="#738"
-              value={form.end} onChangeText={t=>setForm(f=>({...f,end:t}))}/>
+            <TextInput
+              style={[styles.input,styles.duo]}
+              placeholder="HH:MM"
+              placeholderTextColor="#738"
+              value={form.start}
+              onChangeText={t=>setForm(f=>({...f,start:t}))}
+            />
+            <TextInput
+              style={[styles.input,styles.duo]}
+              placeholder="HH:MM"
+              placeholderTextColor="#738"
+              value={form.end}
+              onChangeText={t=>setForm(f=>({...f,end:t}))}
+            />
           </View>
 
-          {/* Duration grid */}
+          {/* Duration */}
           <Text style={styles.formLabel}>진행시간</Text>
           <View style={styles.durationGrid}>
             {DUR_OPTS.map(n=>(
-              <TouchableOpacity key={n}
+              <TouchableOpacity
+                key={n}
                 style={[styles.timeChipGrid, form.dur===n && styles.timeChipGridOn]}
                 onPress={()=>setDur(n)}
               >
@@ -800,24 +995,31 @@ function CreateModal({form,setForm,onClose,onCreate}){
           <Text style={styles.formLabel}>{T.title}</Text>
           <TextInput
             style={styles.input}
-            placeholder={T.titlePH} placeholderTextColor="#738"
-            value={form.title} onChangeText={v=>setForm(f=>({...f,title:v}))}
+            placeholder={T.titlePH}
+            placeholderTextColor="#738"
+            value={form.title}
+            onChangeText={v=>setForm(f=>({...f,title:v}))}
           />
 
-          {/* Description */}
+          {/* Desc */}
           <Text style={styles.formLabel}>{T.desc}</Text>
           <TextInput
             style={[styles.input,{minHeight:130}]}
-            multiline placeholder={T.descPH} placeholderTextColor="#738"
-            value={form.desc} onChangeText={v=>setForm(f=>({...f,desc:v}))}
+            multiline
+            placeholder={T.descPH}
+            placeholderTextColor="#738"
+            value={form.desc}
+            onChangeText={v=>setForm(f=>({...f,desc:v}))}
           />
 
           <View style={{flexDirection:"row",gap:8,marginTop:10}}>
-            <TouchableOpacity style={styles.secondaryBtn} onPress={()=>{
-              Alert.alert("안전","밝은 공공장소에서 만나고, 지인에게 일정을 공유해줘.");
-            }}>
+            <TouchableOpacity
+              style={styles.secondaryBtn}
+              onPress={()=>{ Alert.alert("안전","밝은 공공장소에서 만나고, 지인에게 일정을 공유해줘."); }}
+            >
               <Text style={styles.secondaryText}>{T.safetyTips}</Text>
             </TouchableOpacity>
+
             <TouchableOpacity style={styles.primaryBtn} onPress={onCreate}>
               <Text style={styles.primaryText}>{T.createCTA}</Text>
             </TouchableOpacity>
@@ -828,7 +1030,7 @@ function CreateModal({form,setForm,onClose,onCreate}){
   );
 }
 
-/* 단일 선택용 시트 (슬롯 생성 폼 전용) */
+/* 단일 선택용 시트 */
 function CitySheetSingle({current,onPick,onClose}){
   return(
     <View style={styles.sheetWrap}>
@@ -845,7 +1047,9 @@ function CitySheetSingle({current,onPick,onClose}){
             </TouchableOpacity>
           ))}
         </ScrollView>
-        <TouchableOpacity style={[styles.primaryBtn,{marginTop:10}]} onPress={onClose}><Text style={styles.primaryText}>{T.done}</Text></TouchableOpacity>
+        <TouchableOpacity style={[styles.primaryBtn,{marginTop:10}]} onPress={onClose}>
+          <Text style={styles.primaryText}>{T.done}</Text>
+        </TouchableOpacity>
       </View>
     </View>
   );
@@ -854,22 +1058,24 @@ function CitySheetSingle({current,onPick,onClose}){
 function Picker({button,value,onPress}){
   return(
     <TouchableOpacity style={[styles.picker, styles.duo]} onPress={onPress}>
-      <Text style={styles.pickerT} numberOfLines={1}>{button}: <Text style={{color:"#fff"}}>{value}</Text></Text>
+      <Text style={styles.pickerT} numberOfLines={1}>
+        {button}: <Text style={{color:"#fff"}}>{value}</Text>
+      </Text>
     </TouchableOpacity>
   );
 }
 
 function defaultTitle(cat){
-  if(cat==="Dating")  return "워크&토크 • 퍼스트룩";
-  if(cat==="Friends") return "벤치 토크 • 캔딧";
-  if(cat==="Workout") return "조깅&토크 10";
-  return "토크 • 어니스트 10";
+  if(cat==="Dating")  return "Vibe • 10";
+  if(cat==="Friends") return "Friends • 10";
+  if(cat==="Workout") return "Workout • 10";
+  return "Try • 10";
 }
 function defaultDesc(cat){
-  if(cat==="Dating")  return "10분. 진짜. 심플.";
-  if(cat==="Friends") return "두 사람, 한 주제.";
-  if(cat==="Workout") return "가벼운 페이스; 이어폰 OFF.";
-  return               "정직한 대화. 영업 금지.";
+  if(cat==="Dating")  return "짧게 만나고, 가볍게 대화해요.";
+  if(cat==="Friends") return "부담 없이 합류해요.";
+  if(cat==="Workout") return "가볍게 움직이고 리프레시.";
+  return               "정직하게, 짧게. 10분 토크.";
 }
 
 /* =========================
@@ -933,7 +1139,7 @@ const styles = StyleSheet.create({
   emptyT:{color:"#fff",fontWeight:"900",marginBottom:4},
   emptyS:{color:"#9aa"},
 
-  // Card (컴팩트)
+  // Card
   card:{borderWidth:2,borderRadius:12,padding:12,marginBottom:10,marginHorizontal:12},
   cardHead:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:4},
   cardType:{fontWeight:"900",fontSize:12,maxWidth:"70%"},
@@ -948,7 +1154,7 @@ const styles = StyleSheet.create({
   inBtn:{backgroundColor:"#3EC6FF",paddingVertical:8,paddingHorizontal:14,borderRadius:10},
   inBtnT:{color:"#0D0F13",fontWeight:"900",fontSize:12},
 
-  // Details — 풀스크린
+  // Details
   detailWrap:{position:"absolute",left:0,right:0,top:0,bottom:0,backgroundColor:"#0D0F13"},
   back:{color:"#9aa",marginBottom:12,fontSize:14},
   detailsBox:{borderWidth:2,borderRadius:14,padding:16},
@@ -997,7 +1203,8 @@ const styles = StyleSheet.create({
 
   toggle:{flex:1,paddingVertical:12,paddingHorizontal:12,borderRadius:10,backgroundColor:"#161A22",borderWidth:1,borderColor:"#2A2F38",alignItems:"center"},
   toggleOn:{backgroundColor:"#3A3F4A"},
-  toggleT:{color:"#9aa",fontWeight:"800"}, toggleTOn:{color:"#fff"},
+  toggleT:{color:"#9aa",fontWeight:"800"},
+  toggleTOn:{color:"#fff"},
 
   picker:{height:44,paddingHorizontal:12,borderRadius:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",alignItems:"center",justifyContent:"center"},
   pickerT:{color:"#cfd6e4",fontWeight:"800"},
@@ -1015,7 +1222,6 @@ const styles = StyleSheet.create({
   secondaryBtn:{backgroundColor:"#3EC6FF22",borderColor:"#3EC6FF",borderWidth:1,padding:12,borderRadius:10,flex:1},
   secondaryText:{color:"#3EC6FF",textAlign:"center",fontWeight:"800"},
 
-  // Note
   noteBox:{marginTop:10,backgroundColor:"#151821",borderWidth:1,borderColor:"#2A2F38",borderRadius:12,padding:12,marginHorizontal:12},
   note:{color:"#cbd3df",textAlign:"center"},
 });

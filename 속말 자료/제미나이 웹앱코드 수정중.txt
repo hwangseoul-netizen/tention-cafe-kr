@@ -1,0 +1,1330 @@
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Text,
+  View,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  StatusBar,
+  SafeAreaView,
+  Modal,
+  TextInput,
+  FlatList,
+  Platform,
+  Animated,
+  Easing,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Alert,
+} from "react-native";
+
+/**
+ * ✅ 안정적인 텐션 슬라이더를 위해 community Slider 사용
+ * (PanResponder 방식은 특정 레이아웃/플랫폼에서 터치가 씹히는 경우가 있어서 교체)
+ */
+import Slider from "@react-native-community/slider";
+
+/**
+ * ✅ 이미지 업로드 (Expo)
+ */
+import * as ImagePicker from "expo-image-picker";
+
+/**
+ * ✅ Firebase (modular v9)
+ */
+import { initializeApp, getApps, getApp } from "firebase/app";
+import {
+  getFirestore,
+  collection,
+  addDoc,
+  onSnapshot,
+  query,
+  orderBy,
+  serverTimestamp,
+} from "firebase/firestore";
+
+/**
+ * ✅ Auth persistence 경고 방지 옵션
+ */
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  getAuth,
+  signInAnonymously,
+  initializeAuth,
+  getReactNativePersistence,
+} from "firebase/auth";
+
+/**
+ * ✅ Storage (이미지 업로드)
+ */
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
+
+/* -------------------------------------------------------------------------- */
+/*                                Firebase Config                             */
+/* -------------------------------------------------------------------------- */
+const firebaseConfig = {
+  apiKey: "AIzaSyCMG4ku-yN__xRrDTs4GwVPq1m4P8uB6Ug",
+  authDomain: "sok-mal.firebaseapp.com",
+  projectId: "sok-mal",
+  storageBucket: "sok-mal.firebasestorage.app",
+  messagingSenderId: "57722700620",
+  appId: "1:57722700620:web:91132e24ceed5df6b5c5e9",
+  measurementId: "G-43NGDB6WWM",
+};
+
+// ✅ Expo 핫리로드에서도 중복 init 방지
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+// ✅ Auth persistence (가능하면 적용, 실패하면 기본 getAuth로 fallback)
+let auth;
+try {
+  auth = initializeAuth(app, {
+    persistence: getReactNativePersistence(AsyncStorage),
+  });
+} catch (e) {
+  auth = getAuth(app);
+}
+
+const storage = getStorage(app);
+
+/* -------------------------------------------------------------------------- */
+/*                                   Data                                     */
+/* -------------------------------------------------------------------------- */
+const RANDOM_TITLES = [
+  "📉 비트코인 -5%.. 한강 수온 체크방",
+  "🤫 독서실 귓속말 (ASMR)",
+  "🤬 직장 상사 뒷담화 (익명보장)",
+  "🍜 점심 메뉴 추천 좀.. 결정장애 옴",
+  "👻 실시간 공포썰 (BGM 있음)",
+  "💤 불면증 치료방 (잠올때까지)",
+  "🎤 방구석 노래방! 한 곡 뽑으실 분?",
+  "⚽ 손흥민 골 넣었다!!! 라이브 중계",
+  "💔 전 애인 연락.. 받는다 vs 만다",
+  "💻 개발자 취업/이직 현실 조언",
+  "🐈 고양이 골골송 24시간 스트리밍",
+  "🗳️ 진보 vs 보수, 끝장 토론 (매너필수)",
+  "✈️ 일본 여행 일정 좀 봐줘요",
+  "🎮 롤(LoL) 5:5 내전 (티어 무관)",
+  "🍺 혼술하는 사람들끼리 짠~",
+  "🎬 넷플릭스 신작 스포일러 리뷰",
+  "🕯️ 타로 봐드립니다. 복채는 좋아요",
+  "🏋️ 오운완! 헬스장 빌런 목격담",
+  "💸 주식 물린 사람들 위로방",
+  "🔥 탕수육 부먹 vs 찍먹 결판",
+  "🤡 아재개그 배틀 (웃으면 강퇴)",
+  "🌌 우주에 끝이 있을까? 심야 철학",
+  "🚓 내 집 앞 주차 시비 조언 좀",
+  "🎄 크리스마스에 할 거 없는 사람 모임",
+  "📱 아이폰 vs 갤럭시, 전쟁터",
+  "🤮 숙취 해소법 공유 급함",
+  "💇 머리 망했는데 위로 좀",
+  "🎁 연인 선물 추천 (10만원대)",
+  "🏠 자취 꿀팁 전수방",
+  "🐶 강아지가 자꾸 짖어요 ㅠㅠ",
+  "🎓 대학원 갈까 말까 고민중",
+  "👖 패션 테러리스트 구제방",
+  "🍳 요리 망함.. 살리는 법 좀",
+  "🚬 금연 1일차.. 응원 좀",
+  "🧟 좀비 사태 터지면 어디로 튐?",
+  "👽 외계인 믿는 사람 모여라",
+];
+
+const CATEGORIES = [
+  "FINANCE",
+  "QUIET",
+  "ANGRY",
+  "FOOD",
+  "HORROR",
+  "SLEEP",
+  "SING",
+  "SPORTS",
+  "LOVE",
+  "TECH",
+  "GAME",
+];
+
+const BOT_BANK = {
+  FINANCE: [
+    "차트 지금 왜 이래… 누가 팔았냐",
+    "여기서 줍줍? 아니면 관망?",
+    "지금 손절하면 나만 손해임?",
+    "한강뷰 인증 금지 ㅋㅋ",
+    "오늘은 뉴스가 장을 찢네",
+    "너무 흥분하지 말고 근거부터 말해줘",
+  ],
+  LOVE: [
+    "그거 설레는 거 맞지?",
+    "답장 텀이 모든 걸 말해준다…",
+    "연락 왔으면 이미 게임 끝났음",
+    "여기서 감정 숨기면 더 망함",
+    "고백 각? 아니면 잠깐 멈춰",
+  ],
+  ANGRY: [
+    "그 상사 이름만 말해봐 (농담)",
+    "와… 그건 진짜 선 넘었네",
+    "퇴사는 충동이 아니라 계획이다",
+    "여기서는 욕 좀 해도 됨",
+    "복수 플랜 말고 생존 플랜부터",
+  ],
+  FOOD: [
+    "일단 라면에 계란 넣자",
+    "부먹/찍먹 논쟁은 세계대전임",
+    "배고프면 판단력 0 됨",
+    "오늘은 김치찌개가 정답",
+    "민초파 등장하면 분위기 불탄다",
+  ],
+  QUIET: [
+    "여기는 속삭임 모드…",
+    "말 적어도 됨, 듣기만 해도 됨",
+    "숨소리 ASMR 좋다",
+    "오늘은 조용히 정리하자",
+  ],
+  SLEEP: [
+    "잠 안 오면 눈 감고 그냥 들어",
+    "오늘 하루 고생했어",
+    "호흡 천천히…",
+    "내일 생각은 내일의 나에게",
+  ],
+  HORROR: [
+    "지금 들리면 안 되는 소리 들림?",
+    "문 잠갔지…?",
+    "BGM 깔린다, 심장 준비",
+    "스포는 강퇴임 ㅋㅋ",
+  ],
+  SING: [
+    "한 곡 뽑고 가자",
+    "여긴 음치도 환영임",
+    "고음은 용기다",
+    "마이크 잡은 사람 승자",
+  ],
+  SPORTS: [
+    "지금 그 장면 다시 봐야 됨",
+    "VAR 뭐하냐…",
+    "오늘 컨디션 미쳤다",
+    "끝까지 가보자!",
+  ],
+  TECH: [
+    "그거 결국 디펜던시 문제임",
+    "버그는 항상 내가 자는 시간에 터짐",
+    "한 줄 고치면 10줄 깨진다",
+    "커밋 메시지부터 반성하자",
+  ],
+  GAME: [
+    "멘탈 관리가 실력이다",
+    "그 픽은 싸움 나겠다",
+    "한 판만 더는 거짓말임",
+    "티어는 마음속에 있다",
+  ],
+  DEFAULT: [
+    "여기 분위기 왜 이렇게 좋냐",
+    "ㅋㅋㅋ 이 방 웃기다",
+    "듣기만 해도 되니까 편하게 있어",
+    "누가 정리 좀 해줘",
+  ],
+};
+
+const ADJECTIVES = [
+  "우울한",
+  "신난",
+  "배고픈",
+  "분노한",
+  "새벽감성",
+  "퇴사하고픈",
+  "사랑에빠진",
+  "센치한",
+  "졸린",
+  "쎈척하는",
+];
+const NOUNS = ["감자", "햄스터", "고양이", "개발자", "직장인", "백수", "호랑이", "토끼", "쿼카", "알파카"];
+const getRandomNickname = () =>
+  `${ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]} ${NOUNS[Math.floor(Math.random() * NOUNS.length)]}`;
+
+const SORT = {
+  DEFAULT: "default",
+  TENSION_DESC: "tension_desc",
+  TENSION_ASC: "tension_asc",
+  PEOPLE_DESC: "people_desc",
+  PEOPLE_ASC: "people_asc",
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                   Theme                                    */
+/* -------------------------------------------------------------------------- */
+const getTheme = (score) => {
+  if (score >= 8.5)
+    return {
+      bg: "#14060b",
+      light: "#FF3B30",
+      badge: "HOT",
+      bubble: "#FF3B30",
+      ring: "rgba(255,59,48,0.25)",
+    };
+  if (score >= 6.0)
+    return {
+      bg: "#140f06",
+      light: "#FF9F0A",
+      badge: "ACTIVE",
+      bubble: "#FF9F0A",
+      ring: "rgba(255,159,10,0.22)",
+    };
+  if (score >= 3.5)
+    return {
+      bg: "#0f0614",
+      light: "#AF52DE",
+      badge: "TALK",
+      bubble: "#AF52DE",
+      ring: "rgba(175,82,222,0.22)",
+    };
+  return {
+    bg: "#061014",
+    light: "#32ADE6",
+    badge: "CALM",
+    bubble: "#32ADE6",
+    ring: "rgba(50,173,230,0.2)",
+  };
+};
+
+const getTensionMessage = (score) => {
+  if (score < 3) return "🤫 소곤소곤… 조용히 듣기 좋은 분위기";
+  if (score < 6) return "☕ 적당한 텐션, 편안한 수다";
+  if (score < 9) return "🗣️ 시끌벅적! 의견 쏟아내는 중";
+  return "🔥 텐션 폭발! 고막 주의ㅋㅋ";
+};
+
+/* -------------------------------------------------------------------------- */
+/*                                 UI Pieces                                  */
+/* -------------------------------------------------------------------------- */
+const PulseAvatar = ({ uri, color }) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const opacityAnim = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.parallel([
+        Animated.timing(scaleAnim, {
+          toValue: 1.65,
+          duration: 1400,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 1400,
+          easing: Easing.out(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacityAnim, scaleAnim]);
+
+  return (
+    <View style={{ alignItems: "center", justifyContent: "center", width: 60, height: 60 }}>
+      <Animated.View
+        style={{
+          position: "absolute",
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          backgroundColor: color,
+          transform: [{ scale: scaleAnim }],
+          opacity: opacityAnim,
+        }}
+      />
+      <Image source={{ uri }} style={{ width: 40, height: 40, borderRadius: 20, borderWidth: 2, borderColor: "white" }} />
+    </View>
+  );
+};
+
+function SortItem({ label, onPress, danger }) {
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      activeOpacity={0.85}
+      style={[styles.sortItem, danger && { borderColor: "rgba(255,59,48,0.35)" }]}
+    >
+      <Text style={[styles.sortItemText, danger && { color: "#FF3B30" }]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    App                                     */
+/* -------------------------------------------------------------------------- */
+export default function App() {
+  const [currentRoom, setCurrentRoom] = useState(null);
+  const [rooms, setRooms] = useState([]);
+  const [user, setUser] = useState(null);
+
+  const [myTension, setMyTension] = useState(5.0);
+  const [myProfile, setMyProfile] = useState({ name: "나그네", seed: "Me", points: 1000 });
+
+  const [loading, setLoading] = useState(true);
+
+  // Modals
+  const [isCreateModal, setCreateModal] = useState(false);
+  const [isProfileModal, setProfileModal] = useState(false);
+  const [isSortModal, setSortModal] = useState(false);
+
+  // Create room inputs
+  const [newTitle, setNewTitle] = useState("");
+  const [newLimit, setNewLimit] = useState(""); // ✅ 빈칸 유지
+  const [newConcept, setNewConcept] = useState("");
+
+  // Profile draft
+  const [profileDraft, setProfileDraft] = useState("");
+
+  // Sort mode
+  const [sortMode, setSortMode] = useState(SORT.DEFAULT);
+
+  const theme = useMemo(() => getTheme(myTension), [myTension]);
+
+  /* ---------------------------- Firebase bootstrap ---------------------------- */
+  useEffect(() => {
+    signInAnonymously(auth)
+      .then((cred) => {
+        setUser(cred.user);
+        setMyProfile((prev) => ({ ...prev, name: getRandomNickname(), seed: cred.user.uid }));
+      })
+      .catch((e) => {
+        console.error(e);
+        Alert.alert("로그인 실패", "Firebase Auth 설정을 확인해줘.");
+      });
+
+    const q = query(collection(db, "rooms"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const liveRooms = snapshot.docs.map((doc) => {
+          const data = doc.data();
+
+          let timeLabel = "방금";
+          if (data.createdAt?.toMillis) {
+            const diff = Date.now() - data.createdAt.toMillis();
+            const min = Math.floor(diff / 60000);
+            timeLabel = min < 1 ? "방금" : min < 60 ? `${min}분 전` : `${Math.floor(min / 60)}시간 전`;
+          }
+
+          return {
+            id: doc.id,
+            ...data,
+            timeLabel,
+            createdAtMillis: data.createdAt?.toMillis?.() || Date.now(),
+          };
+        });
+
+        setRooms(liveRooms);
+        setLoading(false);
+      },
+      (err) => {
+        console.error(err);
+        setLoading(false);
+        Alert.alert(
+          "권한 오류",
+          "Firestore 읽기 권한이 없어. Firebase 콘솔의 Firestore Rules에서 read 권한을 확인해줘.\n(현재: Missing or insufficient permissions)"
+        );
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  /* -------------------------------------------------------------------------- */
+  /*                                Slider Component                            */
+  /* -------------------------------------------------------------------------- */
+  const FlatTensionSlider = ({ tension, setTension, theme }) => {
+    return (
+      <View style={[styles.sliderBox, { borderColor: theme.light }]}>
+        <View style={styles.sliderHeader}>
+          <Text style={[styles.sliderLabel, { color: theme.light }]}>TENSION SETTING</Text>
+          <Text style={[styles.sliderValue, { color: theme.light }]}>{tension.toFixed(1)}</Text>
+        </View>
+
+        {/* ✅ 안정적인 Slider (탭/드래그 정상) */}
+        <View style={styles.sliderRow}>
+          <Slider
+            style={styles.nativeSlider}
+            minimumValue={0}
+            maximumValue={10}
+            step={0.1}
+            value={tension}
+            onValueChange={(v) => setTension(Number(v.toFixed(1)))}
+            minimumTrackTintColor={theme.light}
+            maximumTrackTintColor={"rgba(255,255,255,0.18)"}
+            thumbTintColor={"#FFFFFF"}
+          />
+        </View>
+
+        <Text style={styles.sliderDesc}>{getTensionMessage(tension)}</Text>
+      </View>
+    );
+  };
+
+  /* -------------------------------------------------------------------------- */
+  /*                               Firestore Actions                            */
+  /* -------------------------------------------------------------------------- */
+  const explainRulesAlert = () => {
+    Alert.alert(
+      "랜덤 생성 실패",
+      "지금 에러는 코드 문제가 아니라 Firestore Rules(권한) 문제야.\n\nFirebase 콘솔 → Firestore Database → Rules에서\nrooms/messages에 대해 auth!=null 허용으로 바꿔줘.\n\n(너는 익명로그인이라 request.auth는 존재함)"
+    );
+  };
+
+  const generateRandomRooms = async () => {
+    try {
+      const shuffled = [...RANDOM_TITLES].sort(() => 0.5 - Math.random()).slice(0, 5);
+
+      const batch = shuffled.map((title) =>
+        addDoc(collection(db, "rooms"), {
+          title,
+          tension: parseFloat((Math.random() * 10).toFixed(1)),
+          category: CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)],
+          host: `https://api.dicebear.com/7.x/avataaars/png?seed=${Math.random()}`,
+          speakers: 1,
+          limit: 20,
+          description: "함께 대화해요!",
+          listeners: Math.floor(Math.random() * 900),
+          createdAt: serverTimestamp(),
+        })
+      );
+
+      await Promise.all(batch);
+    } catch (e) {
+      console.error(e);
+      explainRulesAlert();
+    }
+  };
+
+  const createRoom = async () => {
+    if (!newTitle.trim()) {
+      Alert.alert("방 제목 필요", "방 제목은 꼭 입력해줘.");
+      return;
+    }
+
+    const parsed = parseInt(newLimit, 10);
+    const limit = Number.isFinite(parsed) && parsed > 0 ? parsed : 20;
+
+    try {
+      await addDoc(collection(db, "rooms"), {
+        title: newTitle.trim(),
+        tension: 5.0,
+        category: "CHAT",
+        host: `https://api.dicebear.com/7.x/avataaars/png?seed=${user?.uid || Math.random()}`,
+        speakers: 1,
+        limit,
+        description: newConcept?.trim() || "함께 대화해요!",
+        listeners: 0,
+        createdAt: serverTimestamp(),
+      });
+
+      setCreateModal(false);
+      setNewTitle("");
+      setNewLimit("");
+      setNewConcept("");
+    } catch (e) {
+      console.error(e);
+      explainRulesAlert();
+    }
+  };
+
+  /* -------------------------------------------------------------------------- */
+  /*                               Sorting + Hot Pin                            */
+  /* -------------------------------------------------------------------------- */
+  const displayRooms = useMemo(() => {
+    const withMeta = rooms.map((r) => {
+      const hot = (r.tension ?? 0) >= 8.7 || (r.listeners ?? 0) >= 400;
+      const people = (r.speakers ?? 0) + (r.listeners ?? 0);
+      const closeness = Math.abs((r.tension ?? 0) - myTension);
+      return { ...r, _hot: hot, _people: people, _closeness: closeness };
+    });
+
+    if (sortMode === SORT.DEFAULT) {
+      return [...withMeta].sort((a, b) => {
+        if (a._hot !== b._hot) return a._hot ? -1 : 1;
+        if (a._closeness !== b._closeness) return a._closeness - b._closeness;
+        return (b.createdAtMillis || 0) - (a.createdAtMillis || 0);
+      });
+    }
+
+    if (sortMode === SORT.TENSION_DESC) return [...withMeta].sort((a, b) => (b.tension || 0) - (a.tension || 0));
+    if (sortMode === SORT.TENSION_ASC) return [...withMeta].sort((a, b) => (a.tension || 0) - (b.tension || 0));
+    if (sortMode === SORT.PEOPLE_DESC) return [...withMeta].sort((a, b) => (b._people || 0) - (a._people || 0));
+    if (sortMode === SORT.PEOPLE_ASC) return [...withMeta].sort((a, b) => (a._people || 0) - (b._people || 0));
+
+    return withMeta;
+  }, [rooms, sortMode, myTension]);
+
+  /* -------------------------------------------------------------------------- */
+  /*                                   Lobby                                    */
+  /* -------------------------------------------------------------------------- */
+  const Lobby = () => {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+        <StatusBar barStyle="light-content" />
+
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>SOK-MAL</Text>
+            <Text style={styles.headerSubtitle}>Asia Live Voice Archive</Text>
+          </View>
+
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => {
+              setProfileDraft(myProfile.name);
+              setProfileModal(true);
+            }}
+            style={styles.pointsBadge}
+          >
+            <Text style={styles.pointsText}>💎 {myProfile.points}</Text>
+            <Image
+              source={{ uri: `https://api.dicebear.com/7.x/avataaars/png?seed=${myProfile.seed}` }}
+              style={styles.miniAvatar}
+            />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.contentPadding}>
+          {/* Tension Slider */}
+          <FlatTensionSlider tension={myTension} setTension={setMyTension} theme={theme} />
+
+          {/* NOW LIVE + 3 Buttons */}
+          <View style={styles.liveRow}>
+            <Text style={styles.sectionTitle}>NOW LIVE ({rooms.length})</Text>
+
+            <View style={styles.actionsRow}>
+              <TouchableOpacity style={styles.actionBtnGold} onPress={generateRandomRooms} activeOpacity={0.85}>
+                <Text style={styles.actionBtnGoldText}>⚡ 랜덤생성</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setCreateModal(true)} activeOpacity={0.85}>
+                <Text style={styles.actionBtnText}>＋ 방 만들기</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionBtn} onPress={() => setSortModal(true)} activeOpacity={0.85}>
+                <Text style={styles.actionBtnText}>정렬 ▾</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Room List */}
+          {loading ? (
+            <ActivityIndicator size="large" color="white" style={{ marginTop: 40 }} />
+          ) : (
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+              {displayRooms.map((room) => {
+                const rTheme = getTheme(room.tension || 0);
+                const hot = room._hot;
+
+                return (
+                  <TouchableOpacity
+                    key={room.id}
+                    activeOpacity={0.9}
+                    style={[styles.card, { borderColor: rTheme.light, shadowColor: rTheme.light }]}
+                    onPress={() => setCurrentRoom(room)}
+                  >
+                    <View style={styles.cardHeader}>
+                      <View style={{ flexDirection: "row", alignItems: "center" }}>
+                        <View style={[styles.badge, { borderColor: rTheme.light, backgroundColor: rTheme.ring }]}>
+                          <Text style={[styles.badgeText, { color: rTheme.light }]}>{room.category || "CHAT"}</Text>
+                        </View>
+                        {hot && (
+                          <View style={[styles.hotPill, { borderColor: rTheme.light }]}>
+                            <Text style={[styles.hotPillText, { color: rTheme.light }]}>🔥 HOT</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <Text style={[styles.tensionText, { color: rTheme.light }]}>{(room.tension ?? 0).toFixed(1)}</Text>
+                    </View>
+
+                    <Text style={styles.roomTitle} numberOfLines={2}>
+                      {room.title}
+                    </Text>
+
+                    <Text style={styles.roomDesc} numberOfLines={1}>
+                      {room.description || "함께 대화해요!"}
+                    </Text>
+
+                    <View style={styles.cardFooter}>
+                      <Text style={styles.metaText}>
+                        🎤 {room.speakers ?? 0}/{room.limit ?? 20}   🎧 {room.listeners ?? 0}
+                      </Text>
+                      <Text style={styles.timeText}>{room.timeLabel || ""}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+        </View>
+
+        {/* ------------------------- Create Room Modal ------------------------- */}
+        <Modal visible={isCreateModal} transparent animationType="slide" onRequestClose={() => setCreateModal(false)}>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalOverlay}>
+              <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}>
+                <View style={styles.modalBox}>
+                  <Text style={styles.modalTitle}>대화방 개설</Text>
+
+                  <TextInput
+                    style={styles.input}
+                    placeholder="방 제목 (필수)"
+                    placeholderTextColor="#666"
+                    value={newTitle}
+                    onChangeText={setNewTitle}
+                    returnKeyType="next"
+                  />
+
+                  <TextInput
+                    style={styles.input}
+                    placeholder="인원 제한 (선택, 비워두면 20)"
+                    placeholderTextColor="#666"
+                    value={newLimit}
+                    onChangeText={setNewLimit}
+                    keyboardType="number-pad"
+                    returnKeyType="next"
+                  />
+
+                  <TextInput
+                    style={[styles.input, { height: 84 }]}
+                    placeholder="방 컨셉/소개 (선택)"
+                    placeholderTextColor="#666"
+                    value={newConcept}
+                    onChangeText={setNewConcept}
+                    multiline
+                  />
+
+                  <View style={{ flexDirection: "row", marginTop: 4 }}>
+                    <TouchableOpacity
+                      style={[styles.modalBtn, { backgroundColor: "#333", marginRight: 10 }]}
+                      onPress={() => setCreateModal(false)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={{ color: "white", fontWeight: "900" }}>취소</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.modalBtn, { backgroundColor: "white" }]}
+                      onPress={createRoom}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={{ color: "black", fontWeight: "900" }}>만들기</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        {/* -------------------------- Profile Modal (Fixed) -------------------------- */}
+        <Modal visible={isProfileModal} transparent animationType="fade" onRequestClose={() => setProfileModal(false)}>
+          <View style={styles.modalOverlay}>
+            {/* 배경 탭: 모달닫기 X, 키보드만 닫기 */}
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+              <View style={StyleSheet.absoluteFill} />
+            </TouchableWithoutFeedback>
+
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 24 : 0}
+              style={{ width: "100%", alignItems: "center" }}
+            >
+              <View
+                style={styles.modalBox}
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+              >
+                <Text style={styles.modalTitle}>MY PROFILE</Text>
+
+                <View style={{ alignItems: "center", marginBottom: 14 }}>
+                  <Image
+                    source={{ uri: `https://api.dicebear.com/7.x/avataaars/png?seed=${myProfile.seed}` }}
+                    style={{ width: 84, height: 84, borderRadius: 42, borderWidth: 2, borderColor: "white", marginBottom: 12 }}
+                  />
+
+                  <TextInput
+                    style={styles.profileInput}
+                    value={profileDraft}
+                    onChangeText={setProfileDraft}
+                    placeholder="닉네임 입력"
+                    placeholderTextColor="#777"
+                    autoFocus
+                    returnKeyType="done"
+                    blurOnSubmit={true}
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                </View>
+
+                <View style={{ flexDirection: "row" }}>
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: "#333", marginRight: 10 }]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setProfileDraft(myProfile.name);
+                      setProfileModal(false);
+                    }}
+                  >
+                    <Text style={{ color: "white", fontWeight: "900" }}>취소</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.modalBtn, { backgroundColor: "white" }]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setMyProfile((p) => ({ ...p, name: (profileDraft || "").trim() || p.name }));
+                      setProfileModal(false);
+                    }}
+                  >
+                    <Text style={{ color: "black", fontWeight: "900" }}>저장</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </View>
+        </Modal>
+
+        {/* ------------------------------ Sort Modal ------------------------------ */}
+        <Modal visible={isSortModal} transparent animationType="fade" onRequestClose={() => setSortModal(false)}>
+          <TouchableWithoutFeedback onPress={() => setSortModal(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={styles.sortBox}>
+                  <Text style={styles.modalTitle}>정렬 기준</Text>
+
+                  <SortItem
+                    label="텐션 높은 순"
+                    onPress={() => {
+                      setSortMode(SORT.TENSION_DESC);
+                      setSortModal(false);
+                    }}
+                  />
+                  <SortItem
+                    label="텐션 낮은 순"
+                    onPress={() => {
+                      setSortMode(SORT.TENSION_ASC);
+                      setSortModal(false);
+                    }}
+                  />
+                  <SortItem
+                    label="인원 높은 순"
+                    onPress={() => {
+                      setSortMode(SORT.PEOPLE_DESC);
+                      setSortModal(false);
+                    }}
+                  />
+                  <SortItem
+                    label="인원 낮은 순"
+                    onPress={() => {
+                      setSortMode(SORT.PEOPLE_ASC);
+                      setSortModal(false);
+                    }}
+                  />
+                  <SortItem
+                    label="초기화 (기본 추천)"
+                    danger
+                    onPress={() => {
+                      setSortMode(SORT.DEFAULT);
+                      setSortModal(false);
+                    }}
+                  />
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      </SafeAreaView>
+    );
+  };
+
+  /* -------------------------------------------------------------------------- */
+  /*                                 Room Detail                                */
+  /* -------------------------------------------------------------------------- */
+  const RoomDetail = ({ room, onBack }) => {
+    const [chats, setChats] = useState([]);
+    const [chatMsg, setChatMsg] = useState("");
+    const [uploading, setUploading] = useState(false);
+
+    const flatListRef = useRef(null);
+    const rTheme = getTheme(room.tension || 0);
+
+    // Firestore messages subscribe
+    useEffect(() => {
+      const q = query(collection(db, "rooms", room.id, "messages"), orderBy("createdAt", "asc"));
+      const unsub = onSnapshot(
+        q,
+        (snapshot) => {
+          const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setChats(list);
+        },
+        (err) => {
+          console.error(err);
+          Alert.alert(
+            "권한 오류",
+            "messages 읽기 권한이 없어. Firestore Rules에서 rooms/{roomId}/messages도 허용해줘."
+          );
+        }
+      );
+      return () => unsub();
+    }, [room.id]);
+
+    // ✅ AI 바람잡이: 로컬만 빠르게 (DB 폭주 방지)
+    useEffect(() => {
+      const category = room.category || "DEFAULT";
+      const bank = BOT_BANK[category] || BOT_BANK.DEFAULT;
+
+      const interval = setInterval(() => {
+        const msg = bank[Math.floor(Math.random() * bank.length)];
+        setChats((prev) => [
+          ...prev,
+          {
+            id: `bot-${Date.now()}`,
+            user: "AI 바람잡이",
+            text: msg,
+            isBot: true,
+            uid: "bot",
+            createdAt: { _fake: true },
+          },
+        ]);
+      }, 1700);
+
+      return () => clearInterval(interval);
+    }, [room.category, room.id]);
+
+    const sendChat = async (extra = {}) => {
+      const m = (chatMsg || "").trim();
+      const hasImage = !!extra.imageUrl;
+
+      if (!m && !hasImage) return;
+
+      setChatMsg("");
+
+      try {
+        await addDoc(collection(db, "rooms", room.id, "messages"), {
+          text: m,
+          user: myProfile.name,
+          uid: user?.uid || "anon",
+          imageUrl: extra.imageUrl || null,
+          createdAt: serverTimestamp(),
+        });
+      } catch (e) {
+        console.error(e);
+        Alert.alert(
+          "전송 실패",
+          "Firestore write 권한이 없어. Rules에서 write 허용해줘.\n(Missing or insufficient permissions)"
+        );
+      }
+    };
+
+    const pickAndUploadImage = async () => {
+      try {
+        setUploading(true);
+
+        // 권한
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (perm.status !== "granted") {
+          Alert.alert("권한 필요", "사진 접근 권한을 허용해줘.");
+          setUploading(false);
+          return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: true,
+          quality: 0.85,
+        });
+
+        if (result.canceled) {
+          setUploading(false);
+          return;
+        }
+
+        const uri = result.assets?.[0]?.uri;
+        if (!uri) {
+          setUploading(false);
+          return;
+        }
+
+        // blob 변환
+        const resp = await fetch(uri);
+        const blob = await resp.blob();
+
+        const uid = user?.uid || "anon";
+        const filePath = `rooms/${room.id}/messages/${uid}/${Date.now()}.jpg`;
+        const storageRef = ref(storage, filePath);
+
+        await uploadBytes(storageRef, blob);
+        const downloadUrl = await getDownloadURL(storageRef);
+
+        // 이미지 메시지 보내기
+        await sendChat({ imageUrl: downloadUrl });
+
+        setUploading(false);
+      } catch (e) {
+        console.error(e);
+        setUploading(false);
+        Alert.alert(
+          "이미지 업로드 실패",
+          "대부분 Storage Rules 권한 문제야.\nFirebase 콘솔 → Storage Rules에서 auth!=null write 허용해줘."
+        );
+      }
+    };
+
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: rTheme.bg }]}>
+        <StatusBar barStyle="light-content" />
+
+        <View style={styles.roomHeader}>
+          <TouchableOpacity onPress={onBack} activeOpacity={0.8}>
+            <Text style={{ color: "white", fontSize: 22, fontWeight: "900" }}>‹</Text>
+          </TouchableOpacity>
+
+          <View style={{ flex: 1, paddingHorizontal: 10 }}>
+            <Text style={{ color: "white", fontWeight: "900" }} numberOfLines={1}>
+              {room.title}
+            </Text>
+            <Text style={{ color: rTheme.light, fontSize: 11 }} numberOfLines={1}>
+              {room.category || "CHAT"} • live
+            </Text>
+          </View>
+
+          <View style={{ width: 36 }} />
+        </View>
+
+        <View style={{ paddingHorizontal: 20 }}>
+          <View style={[styles.topicCard, { borderColor: rTheme.light }]}>
+            <View style={styles.speakerRow}>
+              <PulseAvatar uri={room.host} color={rTheme.light} />
+              <View style={{ marginLeft: 12, flex: 1 }}>
+                <Text style={{ color: "white", fontWeight: "900" }}>HOST</Text>
+                <Text style={{ color: "#bbb", fontSize: 12 }} numberOfLines={1}>
+                  {room.description || "함께 대화해요!"}
+                </Text>
+              </View>
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={{ color: rTheme.light, fontWeight: "900", fontSize: 14 }}>
+                  {(room.tension ?? 0).toFixed(1)}
+                </Text>
+                <Text style={{ color: "#777", fontSize: 11 }}>
+                  🎤 {room.speakers ?? 0}/{room.limit ?? 20} • 🎧 {room.listeners ?? 0}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.chatWrap}>
+          <FlatList
+            ref={flatListRef}
+            data={chats}
+            keyExtractor={(i) => String(i.id)}
+            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            contentContainerStyle={{ padding: 18, paddingBottom: 12 }}
+            renderItem={({ item }) => {
+              const mine = item.uid && user?.uid && item.uid === user.uid;
+              const bot = item.uid === "bot" || item.isBot;
+
+              const bubbleStyle = mine
+                ? { alignSelf: "flex-end", backgroundColor: rTheme.bubble }
+                : bot
+                ? { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.10)", borderWidth: 1, borderColor: rTheme.ring }
+                : { alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.12)" };
+
+              return (
+                <View style={[styles.chatBubble, bubbleStyle]}>
+                  {!mine && (
+                    <Text style={[styles.chatUser, { color: bot ? rTheme.light : "#ddd" }]}>
+                      {bot ? "AI 바람잡이" : item.user || "익명"}
+                    </Text>
+                  )}
+
+                  {!!item.text && (
+                    <Text style={{ color: "white", fontSize: 14, lineHeight: 20 }}>
+                      {item.text}
+                    </Text>
+                  )}
+
+                  {!!item.imageUrl && (
+                    <Image
+                      source={{ uri: item.imageUrl }}
+                      style={styles.chatImage}
+                      resizeMode="cover"
+                    />
+                  )}
+                </View>
+              );
+            }}
+          />
+        </View>
+
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={styles.inputArea}>
+            {/* 이미지 첨부 */}
+            <TouchableOpacity
+              onPress={pickAndUploadImage}
+              activeOpacity={0.85}
+              style={[styles.attachBtn, { borderColor: rTheme.light }]}
+              disabled={uploading}
+            >
+              <Text style={{ color: "white", fontWeight: "900" }}>{uploading ? "…" : "🖼"}</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.chatInput}
+              value={chatMsg}
+              onChangeText={setChatMsg}
+              onSubmitEditing={() => sendChat()}
+              placeholder="대화 참여…"
+              placeholderTextColor="#8a8a8a"
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              onPress={() => sendChat()}
+              style={[styles.sendBtn, { backgroundColor: rTheme.light }]}
+              activeOpacity={0.85}
+            >
+              <Text style={{ fontWeight: "900", color: "black" }}>⬆</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
+  };
+
+  return currentRoom ? <RoomDetail room={currentRoom} onBack={() => setCurrentRoom(null)} /> : <Lobby />;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                    Styles                                   */
+/* -------------------------------------------------------------------------- */
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    alignItems: "center",
+  },
+  headerTitle: { fontSize: 28, fontWeight: "900", color: "white", fontStyle: "italic", letterSpacing: -0.5 },
+  headerSubtitle: { fontSize: 11, color: "#b7b7b7", marginTop: 4 },
+
+  pointsBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.10)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  pointsText: { color: "#FFD700", fontWeight: "900", marginRight: 8, fontSize: 12 },
+  miniAvatar: { width: 26, height: 26, borderRadius: 13, backgroundColor: "#333" },
+
+  contentPadding: { paddingHorizontal: 20, flex: 1 },
+
+  /* Slider */
+  sliderBox: {
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    backgroundColor: "rgba(0,0,0,0.42)",
+    marginBottom: 14,
+  },
+  sliderHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  sliderLabel: { fontSize: 12, fontWeight: "900", letterSpacing: 1.4, opacity: 0.95 },
+  sliderValue: { fontSize: 22, fontWeight: "900", fontStyle: "italic" },
+
+  sliderRow: {
+    width: "100%",
+    paddingHorizontal: 2,
+    justifyContent: "center",
+  },
+  nativeSlider: {
+    width: "100%",
+    height: 38,
+  },
+  sliderDesc: { marginTop: 8, textAlign: "center", color: "#d6d6d6", fontSize: 12, fontWeight: "700", opacity: 0.9 },
+
+  /* Live row + actions */
+  liveRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionTitle: { color: "white", fontSize: 16, fontWeight: "900" },
+  actionsRow: { flexDirection: "row", alignItems: "center" },
+
+  actionBtnGold: {
+    backgroundColor: "rgba(255,215,0,0.18)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,215,0,0.55)",
+    marginRight: 10,
+  },
+  actionBtnGoldText: { color: "#FFD700", fontWeight: "900", fontSize: 12 },
+
+  actionBtn: {
+    backgroundColor: "rgba(255,255,255,0.10)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    marginRight: 10,
+  },
+  actionBtnText: { color: "white", fontWeight: "900", fontSize: 12, opacity: 0.95 },
+
+  /* Card */
+  card: {
+    marginBottom: 14,
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    backgroundColor: "rgba(0,0,0,0.40)",
+    shadowOpacity: 0.12,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
+  },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  badgeText: { fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  hotPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    backgroundColor: "rgba(255,255,255,0.06)",
+  },
+  hotPillText: { fontSize: 10, fontWeight: "900" },
+  tensionText: { fontSize: 16, fontWeight: "900", fontStyle: "italic" },
+
+  roomTitle: { fontSize: 16, fontWeight: "900", color: "white", lineHeight: 22 },
+  roomDesc: { marginTop: 6, color: "#bcbcbc", fontSize: 12, fontWeight: "700", opacity: 0.9 },
+
+  cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
+  metaText: { color: "#9a9a9a", fontSize: 12, fontWeight: "800" },
+  timeText: { color: "#6e6e6e", fontSize: 12, fontWeight: "800" },
+
+  /* Modals */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.78)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 18,
+  },
+  modalBox: {
+    width: 330,
+    backgroundColor: "#151515",
+    borderRadius: 24,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  modalTitle: { color: "white", fontSize: 18, fontWeight: "900", marginBottom: 16, textAlign: "center" },
+  input: { backgroundColor: "rgba(255,255,255,0.10)", color: "white", borderRadius: 14, padding: 14, marginBottom: 10, fontWeight: "800" },
+  profileInput: {
+    width: "100%",
+    height: 52,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    borderRadius: 16,
+    color: "white",
+    fontSize: 18,
+    fontWeight: "900",
+    textAlign: "center",
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+  },
+  modalBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: "center" },
+
+  /* Sort */
+  sortBox: {
+    width: 320,
+    backgroundColor: "#151515",
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+  },
+  sortItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    marginBottom: 10,
+  },
+  sortItemText: { color: "white", fontWeight: "900", fontSize: 14 },
+
+  /* Room detail */
+  roomHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12 },
+  topicCard: {
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+  },
+  speakerRow: { flexDirection: "row", alignItems: "center" },
+
+  chatWrap: { flex: 1, marginTop: 10 },
+  chatBubble: { padding: 12, borderRadius: 16, marginBottom: 10, maxWidth: "84%" },
+  chatUser: { fontSize: 10, fontWeight: "900", marginBottom: 4, opacity: 0.95 },
+
+  chatImage: {
+    width: 220,
+    height: 220,
+    borderRadius: 14,
+    marginTop: 10,
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+
+  inputArea: {
+    flexDirection: "row",
+    padding: 14,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.08)",
+  },
+  attachBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    backgroundColor: "rgba(255,255,255,0.10)",
+  },
+  chatInput: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.10)",
+    color: "white",
+    borderRadius: 999,
+    paddingHorizontal: 18,
+    height: 46,
+    marginRight: 10,
+    fontWeight: "800",
+  },
+  sendBtn: { width: 46, height: 46, borderRadius: 23, justifyContent: "center", alignItems: "center" },
+});
