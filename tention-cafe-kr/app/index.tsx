@@ -1,17 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-    Alert,
-    KeyboardAvoidingView,
-    Platform,
-    Pressable,
-    SafeAreaView,
-    ScrollView,
-    Share,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 /**
@@ -22,16 +22,16 @@ import {
 import { db } from "../src/firebase/firebase";
 
 import {
-    arrayRemove,
-    arrayUnion,
-    collection,
-    doc,
-    getDoc,
-    onSnapshot,
-    serverTimestamp,
-    setDoc,
-    updateDoc,
-    writeBatch,
+  arrayRemove,
+  arrayUnion,
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 
 /* ---- default export ---- */
@@ -122,7 +122,9 @@ const HOT5 = ["GN", "HD", "JS", "GS", "YD"];
 /* =========================
    Constants
 ========================= */
-const DUR_OPTS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+/** ✅ 10~120분 (12개) */
+const DUR_OPTS = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120] as const;
+
 const BAND_ANCHOR: Record<string, string> = {
   "이른 아침": "06:30",
   "오전": "10:00",
@@ -539,8 +541,8 @@ function Root() {
 
     arr = arr.filter((s) => s.band === band);
 
-    // duration 필터: totalMins >= dur
-    arr = arr.filter((s) => (s.totalMins || 10) >= dur);
+    /** ✅ duration 필터: slot.totalMins <= dur (너가 목표로 잡았던 조건) */
+    arr = arr.filter((s) => (s.totalMins || 10) <= dur);
 
     if (myOnly) arr = arr.filter((s) => includes(s.attendees, ME));
 
@@ -1021,7 +1023,9 @@ function Root() {
           {list.length === 0 && (
             <View style={styles.empty}>
               <Text style={styles.emptyT}>{T.noSlotsT}</Text>
-              <Text style={styles.emptyS}>{myOnly ? "아직 내 모임이 없어. 슬롯에서 참여하기 누르면 여기에 생겨." : T.noSlotsS}</Text>
+              <Text style={styles.emptyS}>
+                {myOnly ? "아직 내 모임이 없어. 슬롯에서 참여하기 누르면 여기에 생겨." : T.noSlotsS}
+              </Text>
             </View>
           )}
 
@@ -1307,9 +1311,15 @@ function Details({
           </Text>
 
           <View style={styles.infoBlock}>
-            <Text style={styles.infoLine}>📍 {cityName(slot.city)} · {slot.cafeName} ({slot.cafeInfo})</Text>
-            <Text style={styles.infoLine}>🕒 {slot.start} ~ {slot.end} · {slot.totalMins}분</Text>
-            <Text style={styles.infoLine}>👥 참여자 {slot.attendees.length}명 / 권장 {slot.recommend}명 · 대기 {slot.wait.length}명</Text>
+            <Text style={styles.infoLine}>
+              📍 {cityName(slot.city)} · {slot.cafeName} ({slot.cafeInfo})
+            </Text>
+            <Text style={styles.infoLine}>
+              🕒 {slot.start} ~ {slot.end} · {slot.totalMins}분
+            </Text>
+            <Text style={styles.infoLine}>
+              👥 참여자 {slot.attendees.length}명 / 권장 {slot.recommend}명 · 대기 {slot.wait.length}명
+            </Text>
             <Text style={styles.infoLine}>✅ 도착 체크인: {slot.arrived.length}명</Text>
           </View>
 
@@ -1578,17 +1588,20 @@ function CreateModal({
           />
 
           <Text style={styles.formLabel}>진행시간</Text>
+
+          {/* ✅ 붕 뜨는 현상 방지: 4열 고정 그리드 */}
           <View style={styles.durationGrid}>
             {DUR_OPTS.map((n) => {
               const on = form.dur === n;
               return (
-                <TouchableOpacity
-                  key={n}
-                  style={[styles.timeChipGrid, on ? styles.timeChipGridOn : null]}
-                  onPress={() => setDur(n)}
-                >
-                  <Text style={[styles.timeChipGridT, on ? styles.timeChipGridTOn : null]}>{n} 분</Text>
-                </TouchableOpacity>
+                <View key={n} style={styles.durationCell}>
+                  <TouchableOpacity
+                    style={[styles.timeChipGrid, on ? styles.timeChipGridOn : null]}
+                    onPress={() => setDur(n)}
+                  >
+                    <Text style={[styles.timeChipGridT, on ? styles.timeChipGridTOn : null]}>{n} 분</Text>
+                  </TouchableOpacity>
+                </View>
               );
             })}
           </View>
@@ -1886,7 +1899,15 @@ const styles = StyleSheet.create({
   policyLine: { color: "#cbd3df", fontSize: 13, marginBottom: 6 },
   secTitle: { color: "#fff", fontWeight: "900", marginBottom: 6, fontSize: 16 },
 
-  sheetWrap: { position: "absolute", left: 0, right: 0, top: 0, bottom: 0, backgroundColor: "#0009", justifyContent: "flex-end" },
+  sheetWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    backgroundColor: "#0009",
+    justifyContent: "flex-end",
+  },
   sheetCard: {
     backgroundColor: "#151821",
     borderTopLeftRadius: 16,
@@ -1941,8 +1962,23 @@ const styles = StyleSheet.create({
 
   input: { backgroundColor: "#151821", color: "#fff", padding: 12, borderRadius: 10, borderWidth: 1, borderColor: "#2A2F38", marginBottom: 8 },
 
-  durationGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 2 },
-  timeChipGrid: { width: "23%", alignItems: "center", paddingVertical: 10, borderRadius: 10, backgroundColor: "#1A1D23", borderWidth: 1, borderColor: "#2A2F38", marginBottom: 8 },
+  /** ✅ 진행시간 그리드 (붕 뜨는 현상 방지) */
+  durationGrid: { flexDirection: "row", flexWrap: "wrap", marginBottom: 2 },
+  durationCell: {
+    flexBasis: "25%",
+    minWidth: 120,
+    paddingHorizontal: 6,
+    marginBottom: 10,
+  },
+  timeChipGrid: {
+    width: "100%",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#1A1D23",
+    borderWidth: 1,
+    borderColor: "#2A2F38",
+  },
   timeChipGridOn: { backgroundColor: "#3A3F4A" },
   timeChipGridT: { color: "#9aa", fontWeight: "800", fontSize: 12 },
   timeChipGridTOn: { color: "#fff" },
